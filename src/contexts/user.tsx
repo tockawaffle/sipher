@@ -1,0 +1,82 @@
+// contexts/user.tsx
+'use client';
+
+import {createContext, useContext} from 'react';
+import {useRouter} from 'next/navigation';
+
+interface UserContextType {
+	user: NonNullable<SiPher.User>;
+	getUser: () => Promise<NonNullable<SiPher.User>>;
+}
+
+const UserContext = createContext<UserContextType | null>(null);
+
+export function useUser() {
+	const context = useContext(UserContext);
+	const router = useRouter();
+	
+	if (!context) {
+		throw new Error('useUser must be used within a UserProvider');
+	}
+	
+	return {
+		user: context.user,
+		getUser: async (userId?: string) => {
+			try {
+				const response = await fetch(`/api/auth/get_user?${
+					userId && `uuid=${
+						encodeURIComponent(userId)
+					}`
+				}`);
+				if (!response.ok) {
+					const error = await response.json();
+					if (error.message?.includes("Auth session missing!")) {
+						throw new Error('No authenticated user');
+					}
+					throw new Error(error.message || 'Authentication failed');
+				}
+				
+				const {user} = await response.json();
+				return user as NonNullable<SiPher.User>;
+			} catch (error) {
+				console.error('Failed to get user:', error);
+				router.push('/auth/login');
+				throw error;
+			}
+		},
+		checkAuth: async () => {
+			try {
+				const response = await fetch('/api/auth/get/user');
+				return response.ok;
+			} catch {
+				return false;
+			}
+		}
+	};
+}
+
+export function UserProvider(
+	{
+		children,
+		initialUser
+	}: {
+		children: React.ReactNode;
+		initialUser: NonNullable<SiPher.User>;
+	}
+) {
+	return (
+		<UserContext.Provider value={{
+			user: initialUser,
+			getUser: async () => {
+				const response = await fetch('/api/auth/get/user');
+				if (!response.ok) {
+					throw new Error('Failed to get user');
+				}
+				const {user} = await response.json();
+				return user as NonNullable<SiPher.User>;
+			}
+		}}>
+			{children}
+		</UserContext.Provider>
+	);
+}
