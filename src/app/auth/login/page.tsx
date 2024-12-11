@@ -1,6 +1,6 @@
 "use client"
 
-import React, {useEffect, useState} from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 import Image from 'next/image'
 import {motion} from 'framer-motion'
 import {Button} from "@/components/ui/button"
@@ -26,20 +26,26 @@ export default function AuthPage() {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const router = useRouter();
 	
-	useEffect(() => {
-		const check = async () => {
-			const isAuthenticated = await checkAuth();
-			if (isAuthenticated) {
-				router.replace('/');
-			} else {
-				setMounted(true);
-			}
-		};
-		
-		check();
-	}, [checkAuth, router]);
+	const check = useCallback(async () => {
+		const isAuthenticated = await checkAuth("Called on Login page");
+		if (isAuthenticated) {
+			router.replace('/');
+		} else {
+			setMounted(true);
+		}
+	}, [checkAuth, router, setMounted])
 	
-	if (!mounted) return null;
+	useEffect(() => {
+		check().then(() => {
+			console.log("Login page check finished")
+		})
+	}, []);
+	
+	if (!mounted) {
+		return <div className="min-h-screen flex items-center justify-center">
+			{/* Optional: Add a loading spinner or skeleton here */}
+		</div>;
+	}
 	
 	
 	const getTheme = () => {
@@ -76,25 +82,37 @@ export default function AuthPage() {
 		}
 		
 		if (response.code !== 200) {
-			if (isLogin && response.code === 400) {
-				console.log(response)
-				toast({
-					title: "E-mail not verified",
-					description: response.message,
-					variant: "destructive",
-					duration: 5000, // Increased duration for better visibility
-					action: response.action!
-				});
-				setIsSubmitting(false);
-				return;
-			}
+			const msg = response.message
 			
-			toast({
-				title: "Error",
-				description: response.message,
-				variant: "destructive",
-				duration: 5000, // Increased duration for better visibility
-			});
+			try {
+				const parsed = JSON.parse(msg);
+				let desc = parsed.name;
+				
+				switch (desc) {
+					case "AuthWeakPasswordError": {
+						desc = "Password too weak, please try again.";
+						break;
+					}
+					default: {
+						desc = "An unknown error occurred";
+					}
+				}
+				
+				toast({
+					title: "Error",
+					description: desc,
+					variant: "destructive",
+					duration: 5000
+				});
+			} catch (e) {
+				// If msg isn't valid JSON, show the raw message
+				toast({
+					title: "Error",
+					description: msg,
+					variant: "destructive",
+					duration: 5000
+				});
+			}
 		} else {
 			toast({
 				title: "Success",

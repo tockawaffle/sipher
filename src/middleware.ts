@@ -16,9 +16,14 @@ const isPublicRoute = (path: string) => {
 }
 
 export async function middleware(request: NextRequest) {
+	
+	const requestHeaders = new Headers(request.headers);
+	requestHeaders.set('x-current-pathname', request.url)
+	requestHeaders.set('x-next-pathname', request.nextUrl.pathname);
+	
 	let response = NextResponse.next({
 		request: {
-			headers: request.headers,
+			headers: requestHeaders,
 		},
 	});
 	
@@ -33,7 +38,9 @@ export async function middleware(request: NextRequest) {
 				redirectUrl.search = request.nextUrl.search;
 			}
 			redirectUrl.searchParams.set('redirectTo', request.nextUrl.pathname);
-			return NextResponse.redirect(redirectUrl);
+			const redirect = NextResponse.redirect(redirectUrl);
+			redirect.headers.set('x-current-pathname', path);
+			return redirect;
 		}
 		
 		if (user && path.startsWith('/auth/') && !path.includes("/auth/complete")) {

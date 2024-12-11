@@ -6,7 +6,7 @@ import {useRouter} from 'next/navigation';
 
 interface UserContextType {
 	user: NonNullable<SiPher.User>;
-	getUser: () => Promise<NonNullable<SiPher.User>>;
+	getUser: (context: string) => Promise<NonNullable<SiPher.User>>;
 }
 
 const UserContext = createContext<UserContextType | null>(null);
@@ -21,7 +21,11 @@ export function useUser() {
 	
 	return {
 		user: context.user,
-		getUser: async (userId?: string) => {
+		getUser: async (context: string, userId?: string) => {
+			if (process.env.NODE_ENV !== 'production') {
+				console.log(`useUser().getUser(): Being called by ${context}`)
+			}
+			
 			try {
 				const response = await fetch(`/api/auth/get_user?${
 					userId && `uuid=${
@@ -44,9 +48,12 @@ export function useUser() {
 				throw error;
 			}
 		},
-		checkAuth: async () => {
+		checkAuth: async (context: string) => {
+			if (process.env.NODE_ENV !== 'production') {
+				console.log(`useUser().checkAuth(): Being called by ${context}`)
+			}
 			try {
-				const response = await fetch('/api/auth/get/user');
+				const response = await fetch('/api/auth/get_user');
 				return response.ok;
 			} catch {
 				return false;
@@ -68,7 +75,7 @@ export function UserProvider(
 		<UserContext.Provider value={{
 			user: initialUser,
 			getUser: async () => {
-				const response = await fetch('/api/auth/get/user');
+				const response = await fetch('/api/auth/get_user');
 				if (!response.ok) {
 					throw new Error('Failed to get user');
 				}

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 	} catch (error) {
 		if (typeof error === "object") {
 			return NextResponse.json(
-				{error: `Registration failed: ${JSON.stringify(error)}`},
+				{error: JSON.stringify(error)},
 				{status: 400}
 			)
 		}

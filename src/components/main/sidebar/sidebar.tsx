@@ -1,5 +1,5 @@
 "use client"
-import React, {useCallback, useEffect, useRef, useState} from "react"
+import React, {useCallback, useEffect, useState} from "react"
 import {usePathname} from "next/navigation"
 import Link from "next/link"
 import {AnimatePresence, motion} from "framer-motion"
@@ -8,13 +8,14 @@ import {Button} from "@/components/ui/button"
 import {Avatar, AvatarFallback} from "@/components/ui/avatar"
 import {Separator} from "@/components/ui/separator"
 import {ScrollArea} from "@/components/ui/scroll-area"
-import {useTheme} from "next-themes"
 import {GearIcon} from "@radix-ui/react-icons"
 import Image from "next/image";
 import MobileHeader from "@/components/main/sidebar/mobile";
 import {useUser} from "@/contexts/user";
-import {useUIState} from "@/hooks/shared-states";
+import {useRefs, useUIState} from "@/hooks/shared-states";
 import {useToast} from "@/hooks/use-toast";
+import {useTheme} from "next-themes";
+import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
 
 type SidebarProps = {
 	children?: React.ReactNode
@@ -26,41 +27,51 @@ function Sidebar(
 	}: SidebarProps
 ) {
 	const pathname = usePathname()
-	const drawerRef = useRef<HTMLDivElement>(null)
 	
 	const [selectedThreads, setSelectedThreads] = useState("");
 	const [threads, setThreads] = useState<SiPher.Messages[] | []>([]);
 	const [threadMenu, setThreadMenu] = useState<SiPher.Messages[] | []>([]);
+	const [copied, setCopied] = useState<boolean>(false);
+	const {theme, systemTheme} = useTheme()
 	const {toast} = useToast();
+	
+	const {isDrawerOpen, setIsDrawerOpen} = useUIState()
+	const {drawerRef} = useRefs();
+	
+	const user = useUser().user!;
+	
+	const {
+		username,
+		suuid
+	} = user
 	
 	useEffect(() => {
 		const getThreads = async () => {
-			const req = await fetch("/api/user/get/threads")
-			
-			if (req.ok) {
-				const {threads} = await req.json() as { threads: SiPher.Messages[] | [] }
-				setThreads(threads)
-				return;
-			} else {
-				setThreads([]);
-				toast({
-					title: "Error",
-					description: "An unknown error occurred",
-					variant: "destructive",
-					duration: 5000, // Increased duration for better visibility
-				})
+			try {
+				const req = await fetch("/api/user/get/threads")
+				if (req.ok) {
+					const {threads} = await req.json() as { threads: SiPher.Messages[] | [] }
+					setThreads(threads)
+				} else {
+					setThreads([])
+					toast({
+						title: "Error",
+						description: "An unknown error occurred",
+						variant: "destructive",
+						duration: 5000,
+					})
+				}
+			} catch (error) {
+				setThreads([])
 			}
 		}
 		
-		getThreads();
-		
-		return () => {
-			setThreads([]);
-		}
-	}, [setThreads])
+		getThreads()
+		return () => setThreads([])
+	}, [toast])
 	
 	const generateThreads = useCallback(() => {
-		threads.map(async(thread) => {
+		threads.map(async (thread) => {
 			if (thread.participants.length > 2) {
 				return (
 					<li key={thread.id}>
@@ -78,46 +89,37 @@ function Sidebar(
 					</li>
 				)
 			} else {
-				const fetchOtherUser = await useUser().getUser(thread.id)
+				const fetchOtherUser = await useUser().getUser("fetchOtherUser - const", thread.id)
 			}
 		})
 	}, [threads])
 	
-	const user = useUser().user!;
-	
-	const {
-		username,
-		suuid
-	} = user
-	
-	const {isDrawerOpen, setIsDrawerOpen} = useUIState()
-	
-	const {theme, systemTheme} = useTheme()
-	const getTheme = () => {
-		if (theme === "system") {
-			switch (systemTheme) {
-				case "dark":
-					return "dark"
-				default:
-					return "light"
-			}
-		}
-		
-		return theme === "dark" ? "dark" : "light"
-	}
-	const isDarkMode = getTheme() === "dark";
+	const isDarkMode = theme === "system"
+		? systemTheme === "dark"
+		: theme === "dark"
 	
 	const RightSidebarContent = () => (
 		<div className={`flex flex-col h-full w-[240px]`}>
+			<TooltipProvider>
+				<Tooltip open={copied} onOpenChange={setCopied}>
+					<TooltipTrigger/>
+					<TooltipContent arrowPadding={10} className={"p-2 shadow-cyan-950 shadow-md"}>
+						Copied SUUID to clipboard!
+					</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
 			<div
-				className={`flex items-center p-3 m-2 ${isDarkMode ? "hover:bg-accent/90" : "hover:bg-secondary/20"} rounded-full transition-colors duration-200`}>
+				onClick={() => {
+					setCopied(true)
+					navigator.clipboard.writeText(suuid)
+				}}
+				className={`flex items-center  p-3 m-2 ${isDarkMode ? "hover:bg-accent/90" : "hover:bg-secondary/20"} rounded-full transition-colors duration-200 cursor-pointer select-none`}>
 				<Avatar className="w-12 h-12 mr-3">
 					<AvatarFallback>{username.charAt(0)}</AvatarFallback>
 				</Avatar>
 				<div>
 					<h3 className={`font-semibold text-[17px] ${isDarkMode ? "text-white" : "text-black"}`}>{username}</h3>
-					<p className="text-sm text-muted-foreground">@{username}</p>
-					<p className="text-xs text-muted">${suuid}</p>
+					<p className="text-xs text-muted-foreground">${suuid}</p>
 				</div>
 			</div>
 			<Separator className="my-2"/>
@@ -179,15 +181,16 @@ function Sidebar(
 					isDarkMode ? "bg-background" : "white"
 				}`}
 			>
-				<div className="flex justify-items-start w-[240px] mt-1.5">
-					<Link href={"/"} passHref>
+				<div className="flex justify-items-start w-[240px] mt-1.5 hover:scale-105 transition-all duration-300">
+					<Link href={"/"} passHref className={"flex flex-row items-center ml-1.5"}>
 						<Image
 							src={isDarkMode ? "/logos/logo.png" : "/logos/logo-light.png"}
 							alt="Tocka&lsquo;s Nest"
 							width={64}
 							height={64}
-							className="w-16 h-16 cursor-pointer rounded-full hover:bg-secondary/20"
+							className="w-16 h-16 cursor-pointer rounded-full antialiased"
 						/>
+						<p className={"text-center text-xl font-bold antialiased"}>SiPher</p>
 					</Link>
 				</div>
 				<RightSidebarContent/>

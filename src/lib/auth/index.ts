@@ -1,3 +1,4 @@
+"use server"
 // lib/auth/index.ts
 import {createClient} from '@/lib/supabase/server';
 import {headers} from 'next/headers';

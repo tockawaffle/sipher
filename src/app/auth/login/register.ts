@@ -4,7 +4,7 @@
  * @param password - The plain-text password of the user. Will be encrypted later by Supabase
  * @constructor
  */
-export default async function Register(password: string, username: string) {
+export default async function Register(username: string, password: string) {
 	try {
 		// Sends the request to the API
 		let res = await fetch('/api/auth/register', {
@@ -19,8 +19,8 @@ export default async function Register(password: string, username: string) {
 		if (!res.ok) {
 			let data = await res.json();
 			return {
-				code: data.code,
-				message: data.message
+				code: res.status,
+				message: data.error
 			}
 		}
 		
@@ -32,7 +32,7 @@ export default async function Register(password: string, username: string) {
 	} catch (e: any) {
 		return {
 			code: 500,
-			message: `An unknown error occurred: ${e.message}`
+			message: e.error
 		}
 	}
 }
