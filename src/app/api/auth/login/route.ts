@@ -7,8 +7,19 @@ export async function POST(request: Request) {
 		const {username, password} = await request.json()
 		const supabase = await createClient()
 		
+		const domain = process.env.DOMAIN;
+		console.log(domain)
+		if (!domain) {
+			return NextResponse.json({
+					error: "Server is misconfigured, please check env variables and try again."
+				},
+				{
+					status: 500
+				})
+		}
+		
 		// Mocks the email with the domain we configured on the local env
-		const email = `${username.toLowerCase()}@${process.env.DOMAIN}`
+		const email = `${username.toLowerCase()}@${domain}`
 		
 		// Sends the request through supabase
 		const {data: {user}, error: authError} = await supabase.auth.signInWithPassword({
