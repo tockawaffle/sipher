@@ -1,7 +1,7 @@
 import {createClient} from "@/lib/supabase/server";
 import {NextResponse} from "next/server";
 import {SupabaseClient} from "@supabase/supabase-js";
-import {getUserByUUID} from "@/app/api/auth/get_user/route";
+import getUserByUUID from "@/lib/api/helpers/getUserByUUID";
 
 async function updateUserRequests(searchTerm: string, requestSuuid: string, supabase: SupabaseClient<any, "public", any>) {
 	try {

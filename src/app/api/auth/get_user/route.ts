@@ -1,17 +1,9 @@
 import {createClient} from "@/lib/supabase/server";
 import {NextResponse} from "next/server";
+import getUserByUUID from "@/lib/api/helpers/getUserByUUID";
 
 // Helper function to get user data by UUID
-export async function getUserByUUID(supabase: any, uuid: string) {
-	const {data: userData, error: userError} = await supabase
-		.from('users')
-		.select('*')
-		.eq('uuid', uuid)
-		.single();
-	
-	if (userError) throw userError;
-	return userData;
-}
+
 
 export async function GET(request: Request) {
 	try {
