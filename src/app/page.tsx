@@ -153,7 +153,7 @@ export default function SiPher() {
 					<div className="max-w-2xl space-y-6 text-center">
 						<p className="text-lg md:text-xl font-medium leading-relaxed text-primary">
 							Where shadows dance and secrets nest, Silent Whisper serves as the dark sanctuary for those
-							who value discretion above all. Born from ancient corvid traditions, this messenger's haven ensures your
+							who value discretion above all. Born from ancient corvid traditions, this messenger&rsquo;s haven ensures your
 							whispers remain unheard by all but their intended recipients.
 						</p>
 						

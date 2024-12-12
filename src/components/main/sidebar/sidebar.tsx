@@ -41,7 +41,7 @@ function Sidebar(
 	
 	const [pendingRequest, setPendingRequest] = useState<number>(0);
 	
-	const user = useUser().user!;
+	const {user, getUser} = useUser()
 	
 	const {
 		username,
@@ -96,7 +96,9 @@ function Sidebar(
 					</li>
 				)
 			} else {
-				const fetchOtherUser = await useUser().getUser("fetchOtherUser - const", thread.id)
+				const fetchOtherUser = async () => {
+					await getUser("fetchOtherUser - const", thread.id)
+				}
 			}
 		})
 	}, [threads])
@@ -150,7 +152,7 @@ function Sidebar(
 								{
 									pendingRequest > 0 && user.requests.map((request, item) => {
 										return (
-											<p>{request}</p>
+											<p key={request}>{request}</p>
 										)
 									}) || (
 										<p>Nothing new here</p>

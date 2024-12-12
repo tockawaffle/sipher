@@ -57,9 +57,9 @@ export async function POST(request: Request) {
 		}
 		
 		return NextResponse.json({success: true});
-	} catch (error) {
+	} catch (err) {
 		return NextResponse.json(
-			{error: "Failed to update requests"},
+			{error: `Failed to update requests: ${err}`},
 			{status: 500}
 		);
 	}
