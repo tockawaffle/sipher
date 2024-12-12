@@ -3,7 +3,7 @@ import React, {useCallback, useEffect, useState} from "react"
 import {usePathname} from "next/navigation"
 import Link from "next/link"
 import {AnimatePresence, motion} from "framer-motion"
-import {LogOut, X} from "lucide-react"
+import {LogOut, Mail, MailPlus, X} from "lucide-react"
 import {Button} from "@/components/ui/button"
 import {Avatar, AvatarFallback} from "@/components/ui/avatar"
 import {Separator} from "@/components/ui/separator"
@@ -16,6 +16,7 @@ import {useRefs, useUIState} from "@/hooks/shared-states";
 import {useToast} from "@/hooks/use-toast";
 import {useTheme} from "next-themes";
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
+import {DropdownMenu, DropdownMenuContent, DropdownMenuTrigger} from "@/components/ui/dropdown-menu";
 
 type SidebarProps = {
 	children?: React.ReactNode
@@ -38,12 +39,18 @@ function Sidebar(
 	const {isDrawerOpen, setIsDrawerOpen} = useUIState()
 	const {drawerRef} = useRefs();
 	
+	const [pendingRequest, setPendingRequest] = useState<number>(0);
+	
 	const user = useUser().user!;
 	
 	const {
 		username,
 		suuid
 	} = user
+	
+	useEffect(() => {
+		setPendingRequest(user.requests?.length || 0);
+	}, [user])
 	
 	useEffect(() => {
 		const getThreads = async () => {
@@ -126,6 +133,31 @@ function Sidebar(
 			<ScrollArea className="flex-grow max-h-[590px] px-4 py-4">
 				<nav>
 					<ul className="space-y-1">
+						<DropdownMenu>
+							<DropdownMenuTrigger>
+								<div className={"flex flex-row items-center w-full justify-start text-[17px]"}>
+									{
+										pendingRequest > 0 ? (
+											<MailPlus className="w-8 h-8 mr-3 p-1"/>
+										) : (
+											<Mail className="w-8 h-8 mr-3 p-1"/>
+										)
+									}
+									Requests
+								</div>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent className="px-4 py-1 w-56" side={"right"}>
+								{
+									pendingRequest > 0 && user.requests.map((request, item) => {
+										return (
+											<p>{request}</p>
+										)
+									}) || (
+										<p>Nothing new here</p>
+									)
+								}
+							</DropdownMenuContent>
+						</DropdownMenu>
 						{threads.map((thread) => (
 							<li key={thread.id}>
 								<Link href={thread.id} passHref>

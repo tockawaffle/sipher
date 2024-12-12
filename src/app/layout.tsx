@@ -9,6 +9,7 @@ import {SharedStateProvider} from "@/hooks/shared-states";
 import ThemeProvider from "@/components/ui/theme-provider";
 import {headers} from "next/headers";
 import {Toaster} from "@/components/ui/toaster";
+import {RealtimeRequests} from "@/components/main/realtime/request";
 
 const publicSans = Public_Sans({
 	subsets: ['latin'],
@@ -57,6 +58,7 @@ export default async function RootLayout(
 					<div className={`max-h-[1080px] p-6 bg-secondary`}>
 						<div className="flex bg-background">
 							<Sidebar>
+								<RealtimeRequests/>
 								{children}
 							</Sidebar>
 						</div>

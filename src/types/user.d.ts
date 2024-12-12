@@ -24,6 +24,8 @@ declare global {
 			created_at: string,
 			/** Messages field */
 			messages: Messages[]
+			/** Consent Requests */
+			requests: string[] // Only accessible to the current user logged in. Will contain an array of SUUIDs
 		}
 	}
 }
