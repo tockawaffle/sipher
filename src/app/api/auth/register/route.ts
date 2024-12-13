@@ -6,9 +6,20 @@ export async function POST(request: Request) {
 	const supabase = await createClient()
 	
 	try {
+		const domain = process.env.DOMAIN;
+		
+		if (!domain) {
+			return NextResponse.json({
+					error: "Server is misconfigured, please check env variables and try again."
+				},
+				{
+					status: 500
+				})
+		}
+		
 		// First create the auth user
 		const {data: {user}, error: authError} = await supabase.auth.signUp({
-			email: `${username}@${process.env.DOMAIN}`, // Using username as email
+			email: `${username}@${domain}`, // Using username as email
 			password: password,
 		})
 		

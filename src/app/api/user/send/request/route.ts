@@ -45,7 +45,12 @@ export async function POST(request: Request) {
 			return NextResponse.json({user: null}, {status: 401});
 		}
 		
-		const userSuuid = (await getUserByUUID(supabase, user.id)).suuid;
+		const getUser = await getUserByUUID(supabase, user.id)
+		const userSuuid = getUser.suuid;
+		
+		if (userSuuid === searchTerm) {
+			return NextResponse.json({success: false, hint: "Used self SUUID"}, {status: 409});
+		}
 		
 		const result = await updateUserRequests(searchTerm, userSuuid, supabase);
 		

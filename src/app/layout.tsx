@@ -58,7 +58,6 @@ export default async function RootLayout(
 					<div className={`max-h-[1080px] p-6 bg-secondary`}>
 						<div className="flex bg-background">
 							<Sidebar>
-								<RealtimeRequests/>
 								{children}
 							</Sidebar>
 						</div>

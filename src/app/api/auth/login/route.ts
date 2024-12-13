@@ -8,7 +8,7 @@ export async function POST(request: Request) {
 		const supabase = await createClient()
 		
 		const domain = process.env.DOMAIN;
-		console.log(domain)
+		
 		if (!domain) {
 			return NextResponse.json({
 					error: "Server is misconfigured, please check env variables and try again."

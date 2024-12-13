@@ -3,7 +3,7 @@ import React, {useCallback, useEffect, useState} from "react"
 import {usePathname} from "next/navigation"
 import Link from "next/link"
 import {AnimatePresence, motion} from "framer-motion"
-import {LogOut, Mail, MailPlus, X} from "lucide-react"
+import {Check, LogOut, Mail, MailPlus, X} from "lucide-react"
 import {Button} from "@/components/ui/button"
 import {Avatar, AvatarFallback} from "@/components/ui/avatar"
 import {Separator} from "@/components/ui/separator"
@@ -17,6 +17,7 @@ import {useToast} from "@/hooks/use-toast";
 import {useTheme} from "next-themes";
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
 import {DropdownMenu, DropdownMenuContent, DropdownMenuTrigger} from "@/components/ui/dropdown-menu";
+import {RealtimeRequests} from "@/components/main/realtime/request";
 
 type SidebarProps = {
 	children?: React.ReactNode
@@ -33,24 +34,30 @@ function Sidebar(
 	const [threads, setThreads] = useState<SiPher.Messages[] | []>([]);
 	const [threadMenu, setThreadMenu] = useState<SiPher.Messages[] | []>([]);
 	const [copied, setCopied] = useState<boolean>(false);
-	const {theme, systemTheme} = useTheme()
+	const {theme, systemTheme} = useTheme();
 	const {toast} = useToast();
 	
-	const {isDrawerOpen, setIsDrawerOpen} = useUIState()
+	const {isDrawerOpen, setIsDrawerOpen} = useUIState();
 	const {drawerRef} = useRefs();
 	
+	const [requests, setRequests] = useState<string[]>([]);
 	const [pendingRequest, setPendingRequest] = useState<number>(0);
 	
-	const {user, getUser} = useUser()
+	const {user, getUser} = useUser();
 	
 	const {
 		username,
 		suuid
-	} = user
+	} = user;
 	
 	useEffect(() => {
-		setPendingRequest(user.requests?.length || 0);
-	}, [user])
+		setPendingRequest(requests.length || 0);
+	}, [requests, setPendingRequest]);
+	
+	useEffect(() => {
+		setPendingRequest(user.requests.length);
+		setRequests(user.requests);
+	}, []);
 	
 	useEffect(() => {
 		const getThreads = async () => {
@@ -149,10 +156,27 @@ function Sidebar(
 								</div>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent className="px-4 py-1 w-56" side={"right"}>
+								<div className={"flex flex-row w-full justify-between items-center select-none"}>
+									<p>User</p>
+									<p>Decline | Accept</p>
+								</div>
 								{
-									pendingRequest > 0 && user.requests.map((request, item) => {
+									pendingRequest > 0 && requests.map((request, item) => {
 										return (
-											<p key={request}>{request}</p>
+											<div key={item} className={"flex flex-col w-full"}>
+												<Separator className="my-2"/>
+												<div key={item} className={"flex flex-row space-x-2 w-full items-center"}>
+													<p className={"text-secondary-foreground"}>{request}</p>
+													<div className={"flex flex-row justify-end space-x-1 w-full"}>
+														<Button size={"icon"} className={"bg-red-500"}>
+															<X className={"w-4 h-4"}/>
+														</Button>
+														<Button size={"icon"} className={"bg-green-500"}>
+															<Check className={"w-4 h-4"}/>
+														</Button>
+													</div>
+												</div>
+											</div>
 										)
 									}) || (
 										<p>Nothing new here</p>
@@ -210,6 +234,7 @@ function Sidebar(
 	return (
 		<>
 			<MobileHeader/>
+			<RealtimeRequests setRequests={setRequests}/>
 			<aside
 				className={`hidden lg:flex flex-col items-end h-screen max-h-[900px] sticky top-0 border-r border-border ${
 					isDarkMode ? "bg-background" : "white"
