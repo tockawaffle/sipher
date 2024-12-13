@@ -32,7 +32,7 @@ export async function POST(request: Request) {
 		// Fetch our custom user data
 		const {data: userData, error: userError} = await supabase
 			.from('users')
-			.select('*')
+			.select('*, public_key')
 			.eq('uuid', user?.id)
 			.single()
 		

@@ -27,6 +27,7 @@ export function RealtimeRequests(
 			table: 'users',
 			filter: `uuid=eq.${user.uuid}`,
 		}, async (payload) => {
+			console.log(payload)
 			if (payload.new.requests !== payload.old.requests) {
 				try {
 					setRequests(payload.new.requests)

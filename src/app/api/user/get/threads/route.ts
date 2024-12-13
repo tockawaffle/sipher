@@ -26,8 +26,8 @@ export async function GET() {
 			}
 		)
 		
-		if (data.length === 0) {
-			return NextResponse.json({threads: []}, {status: 200});
+		if (error) {
+			return NextResponse.json({error}, {status: 400})
 		}
 		
 		return NextResponse.json({threads: data}, {status: 200});

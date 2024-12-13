@@ -17,10 +17,15 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
+import {CryptoManager} from "@/lib/crypto/keys";
+import UpdateKey from "@/lib/crypto/helpers/updateKey";
 
 export default function SiPher() {
 	const {theme, systemTheme} = useTheme();
 	const [mounted, setMounted] = useState(false);
+	
+	/** CryptoManager Alert */
+	const [privateKeyPresent, setPrivateKeyPresent] = useState(true);
 	
 	/** Consent Form states */
 	const [showConsentForm, setShowConsentForm] = useState(false);
@@ -36,6 +41,15 @@ export default function SiPher() {
 	useEffect(() => {
 		setMounted(true);
 	}, []);
+	
+	useEffect(() => {
+		CryptoManager.getPrivateKey().then((res) => {
+			if (!res) {
+				console.log(res)
+				setPrivateKeyPresent(false);
+			}
+		})
+	}, [])
 	
 	/**
 	 * @param search_term Either the SUUID or username (If not indexable, will return false.)
@@ -73,11 +87,15 @@ export default function SiPher() {
 				"Content-Type": "application/json"
 			},
 			body: JSON.stringify({
-        searchTerm: user, // SUUID or username
-      })
+				searchTerm: user, // SUUID or username
+			})
 		});
 		
-		if (!req.ok) return false;
+		if (!req.ok) {
+			const res = await req.json();
+			setFormError(res.hint);
+			return false;
+		}
 		
 		const {sent} = await req.json() as { sent: boolean };
 		// If the user does not exist, just return it
@@ -96,43 +114,96 @@ export default function SiPher() {
 	
 	const currentTheme = getTheme();
 	
-	return (
-		<>
-			<AlertDialog open={showConsentForm} onOpenChange={(open) => {
-				if (!open) setFormError("");
-			}}>
-				<AlertDialogTrigger/>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Consent Form</AlertDialogTitle>
-						<AlertDialogDescription className={"flex flex-col space-y-1"}>
-							<span>
+	const MainPageAlerts = () => {
+		return (
+			<>
+				<AlertDialog open={showConsentForm} onOpenChange={(open) => {
+					if (!open) setFormError("");
+				}}>
+					<AlertDialogTrigger/>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Consent Form</AlertDialogTitle>
+							<AlertDialogDescription className={"flex flex-col space-y-1"}>
+								{
+									formError ? (
+										<span className={"text-red-500"}>{formError}</span>
+									) : null
+								}
+								<span>
 								Are you sure you want to contact <span className={"font-bold"}>{inputValue}</span>?
 							</span>
-							<span>
+								<span>
 								By continuing, <span className={"font-bold"}>{inputValue}</span> will receive a notification to accept
 								it. If accepted, that user will appear on your sidebar, if rejected, you will never know about it.
 							</span>
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel
-							onClick={() => {
-								setShowConsentForm(false);
-								setInputDisabled(false);
-							}}
-						>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => {
-								sendRequest(inputValue).then((result) => {
-									if (!result) setFormError("Could not send notification for whatever reason. Sorry.");
-								});
-								setInputDisabled(false);
-							}}
-						>Continue</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel
+								onClick={() => {
+									setShowConsentForm(false);
+									setInputDisabled(false);
+								}}
+							>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								disabled={formError.length < 0}
+								onClick={() => {
+									sendRequest(inputValue);
+									setInputDisabled(false);
+									setShowConsentForm(false);
+								}}
+							>Continue</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+				
+				<AlertDialog open={!privateKeyPresent}>
+					<AlertDialogTrigger/>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Private Key Missing</AlertDialogTitle>
+							<AlertDialogDescription className={"flex flex-col space-y-1"}>
+								<span>This app could not retrieve your private key, which means it's either lost, never stored or corrupted. Want to try again or insert it from a backup?</span>
+								<span>You can also regenerate it if you do not have it backed up, but this would mean that you'll loose access to all old messages.</span>
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel
+								onClick={() => {
+									setShowConsentForm(false);
+									setInputDisabled(false);
+								}}
+							>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								onClick={() => {
+									sendRequest(inputValue).then((result) => {
+										if (!result) setFormError("Could not send notification for whatever reason. Sorry.");
+									});
+									setInputDisabled(false);
+								}}
+							>Try Again</AlertDialogAction>
+							<AlertDialogAction
+								onClick={() => {
+									UpdateKey().then((result) => {
+										if (result.status !== 200) {
+											return;
+										}
+										setPrivateKeyPresent(true)
+									})
+								}}
+							>Regenerate</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			</>
+		)
+	}
+	
+	return (
+		<>
+			<MainPageAlerts/>
+			
 			<div
 				className={`relative flex-1 ${currentTheme === "dark" ? "dark" : ""} w-full max-h-[600px] bg-gradient-to-b from-background to-background/95`}>
 				<div className="relative flex flex-col justify-center items-center h-screen px-4 select-none space-y-8">
@@ -153,7 +224,8 @@ export default function SiPher() {
 					<div className="max-w-2xl space-y-6 text-center">
 						<p className="text-lg md:text-xl font-medium leading-relaxed text-primary">
 							Where shadows dance and secrets nest, Silent Whisper serves as the dark sanctuary for those
-							who value discretion above all. Born from ancient corvid traditions, this messenger&rsquo;s haven ensures your
+							who value discretion above all. Born from ancient corvid traditions, this messenger&rsquo;s haven ensures
+							your
 							whispers remain unheard by all but their intended recipients.
 						</p>
 						

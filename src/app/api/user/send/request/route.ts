@@ -2,28 +2,7 @@ import {createClient} from "@/lib/supabase/server";
 import {NextResponse} from "next/server";
 import {SupabaseClient} from "@supabase/supabase-js";
 import getUserByUUID from "@/lib/api/helpers/getUserByUUID";
-
-async function updateUserRequests(searchTerm: string, requestSuuid: string, supabase: SupabaseClient<any, "public", any>) {
-	try {
-		
-		const {data, error} = await supabase.rpc('update_user_requests', {
-			search_term: searchTerm,
-			new_request: requestSuuid
-		});
-		
-		if (error) {
-			throw error;
-		}
-		
-		return {success: true, data};
-	} catch (error) {
-		console.error('Error updating user requests:', error);
-		return {
-			success: false,
-			error: error instanceof Error ? error.message : 'Unknown error occurred'
-		};
-	}
-}
+import updateUserRequests from "@/lib/api/helpers/updateUserRequests";
 
 export async function POST(request: Request) {
 	try {
@@ -49,7 +28,7 @@ export async function POST(request: Request) {
 		const userSuuid = getUser.suuid;
 		
 		if (userSuuid === searchTerm) {
-			return NextResponse.json({success: false, hint: "Used self SUUID"}, {status: 409});
+			return NextResponse.json({success: false, hint: "Cannot send request to self"}, {status: 409});
 		}
 		
 		const result = await updateUserRequests(searchTerm, userSuuid, supabase);

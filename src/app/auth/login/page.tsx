@@ -75,6 +75,7 @@ export default function AuthPage() {
 			message: string;
 			action?: ToastActionElement | undefined;
 		}
+		
 		if (!isLogin) {
 			response = await Register(username, password);
 		} else {

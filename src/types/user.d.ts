@@ -1,9 +1,10 @@
+import {Json} from "../../database.types";
+
 declare global {
 	namespace SiPher {
 		type Messages = {
-			id: string;
+			thread_id: string;
 			participants: string[];
-			name?: string;
 			messages: {
 				id: string;
 				content: string;
@@ -12,20 +13,13 @@ declare global {
 		}
 		
 		type User = {
-			/** Represents the unique username of a user. */
-			username: string,
-			/** The encrypted password of said user. */
-			password: string,
-			/** Unique UUID, long */
-			uuid: string,
-			/** Short UUID, for index reasons */
-			suuid: string,
-			/** Created at timestamp in UTC */
-			created_at: string,
-			/** Messages field */
-			messages: Messages[]
-			/** Consent Requests */
-			requests: string[] // Only accessible to the current user logged in. Will contain an array of SUUIDs
+			created_at: string
+			indexable: boolean | null
+			public_key: Json | null
+			requests: string[] | null
+			suuid: string
+			username: string
+			uuid: string
 		}
 	}
 }

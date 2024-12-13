@@ -28,15 +28,12 @@ export async function GET(request: Request) {
 			)
 		}
 		
-		const rpcResult = await supabase.rpc('search_users', {
+		const {data, error} = await supabase.rpc('search_users', {
 			search_term: uuid
 		});
 		
-		const {data, error} = rpcResult;
 		if (error) {
 			return NextResponse.json({error: error}, {status: 500});
-		} else if (data.length === 0) {
-			return NextResponse.json({user: []}, {status: 200});
 		}
 		
 		return NextResponse.json({exists: !!(data[0].suuid && data[0].username)}, {status: 200});
