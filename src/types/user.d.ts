@@ -1,15 +1,16 @@
-import {Json} from "../../database.types";
-
 declare global {
 	namespace SiPher {
-		type Messages = {
+		type Thread = {
 			thread_id: string;
 			participants: string[];
+			participant_suuids: string[];
 			messages: {
-				id: string;
-				content: string;
+				isSender: boolean;
+				id: string;  // UUID
+				content: string;  // The encrypted content (either sender_content or recipient_content)
+				sender_uuid: string;  // UUID of sender
+				created_at: string;  // ISO timestamp
 			}[];
-			indexable?: boolean;
 		}
 		
 		type User = {
@@ -20,6 +21,24 @@ declare global {
 			suuid: string
 			username: string
 			uuid: string
+		}
+		
+		interface DecryptedMessage {
+			id: string;
+			content: string;
+			sender_uuid: string;
+			created_at: string;
+			isSender: boolean;
+			error?: boolean;
+		}
+		
+		interface RealtimeMessageData {
+			created_at: string;
+			id: string;
+			recipient_content: string;
+			sender_content: string;
+			sender_uuid: string;
+			thread_id: string;
 		}
 	}
 }

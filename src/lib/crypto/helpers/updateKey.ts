@@ -12,7 +12,7 @@ export default async function UpdateKey() {
 		body: JSON.stringify({publicKey: exportedPublic}),
 	})
 	
-	if(req.status !== 200) {
+	if (req.status !== 200) {
 		await CryptoManager.deletePrivateKey();
 		return {
 			status: req.status,

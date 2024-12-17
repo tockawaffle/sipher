@@ -1,7 +1,6 @@
 import {NextResponse} from "next/server";
 import {createClient} from "@/lib/supabase/server";
 import getUserByUUID from "@/lib/api/helpers/getUserByUUID";
-import updateUserRequests from "@/lib/api/helpers/updateUserRequests";
 
 export async function POST(req: Request) {
 	const {participant} = await req.json();
@@ -28,7 +27,7 @@ export async function POST(req: Request) {
 	
 	/** First we need to check if the requested participant is in the user's request array */
 	const dbUser = await getUserByUUID(supabase, user.id)
-
+	
 	if (!dbUser) {
 		return NextResponse.json(
 			{error: "User not found"},
@@ -49,7 +48,7 @@ export async function POST(req: Request) {
 	const {error} = await supabase.rpc('create_private_thread', {
 		participant_suuid: participant
 	});
-
+	
 	if (error) {
 		return NextResponse.json({error}, {status: 500});
 	}

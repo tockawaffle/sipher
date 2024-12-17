@@ -7,7 +7,6 @@ import {Button} from "@/components/ui/button"
 import Image from "next/image";
 import MobileHeader from "@/components/main/sidebar/mobile";
 import {useRefs, useUIState} from "@/hooks/shared-states";
-import {useToast} from "@/hooks/use-toast";
 import {useTheme} from "next-themes";
 import RightSidebarContent from "@/components/main/sidebar/rightsidebar";
 
@@ -21,7 +20,6 @@ function Sidebar(
 	}: SidebarProps
 ) {
 	const {theme, systemTheme} = useTheme();
-	const {toast} = useToast();
 	
 	const {isDrawerOpen, setIsDrawerOpen} = useUIState();
 	const {drawerRef} = useRefs();
@@ -29,11 +27,6 @@ function Sidebar(
 	const isDarkMode = theme === "system"
 		? systemTheme === "dark"
 		: theme === "dark"
-	
-	
-	const handleAcceptRequest = async () => {
-	
-	}
 	
 	return (
 		<>
@@ -88,9 +81,10 @@ function Sidebar(
 					</motion.div>
 				)}
 			</AnimatePresence>
-			{
+			<div className={"max-h-[900px] w-full"}>{
 				children ?? null
 			}
+			</div>
 		</>
 	)
 }

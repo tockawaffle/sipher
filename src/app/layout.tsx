@@ -9,7 +9,6 @@ import {SharedStateProvider} from "@/hooks/shared-states";
 import ThemeProvider from "@/components/ui/theme-provider";
 import {headers} from "next/headers";
 import {Toaster} from "@/components/ui/toaster";
-import {RealtimeRequests} from "@/components/main/realtime/request";
 
 const publicSans = Public_Sans({
 	subsets: ['latin'],

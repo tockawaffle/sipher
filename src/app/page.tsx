@@ -26,6 +26,7 @@ export default function SiPher() {
 	
 	/** CryptoManager Alert */
 	const [privateKeyPresent, setPrivateKeyPresent] = useState(true);
+	const [backupPanel, setBackupPanel] = useState(false);
 	
 	/** Consent Form states */
 	const [showConsentForm, setShowConsentForm] = useState(false);
@@ -164,8 +165,8 @@ export default function SiPher() {
 						<AlertDialogHeader>
 							<AlertDialogTitle>Private Key Missing</AlertDialogTitle>
 							<AlertDialogDescription className={"flex flex-col space-y-1"}>
-								<span>This app could not retrieve your private key, which means it's either lost, never stored or corrupted. Want to try again or insert it from a backup?</span>
-								<span>You can also regenerate it if you do not have it backed up, but this would mean that you'll loose access to all old messages.</span>
+								<span>This app could not retrieve your private key, which means it&apos;s either lost, never stored or corrupted. Want to try again or insert it from a backup?</span>
+								<span>You can also regenerate it if you do not have it backed up, but this would mean that you&apos;ll loose access to all old messages.</span>
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>

@@ -6,7 +6,7 @@ export async function GET(request: Request) {
 		const supabase = await createClient();
 		const {searchParams} = new URL(request.url);
 		const uuid = searchParams.get('uuid');
-		console.log('Searching for UUID:', uuid);
+		const getDetails = searchParams.get("detailed")
 		
 		if (!uuid) {
 			return NextResponse.json({error: "Missing UUID from request"}, {status: 400})
@@ -34,6 +34,10 @@ export async function GET(request: Request) {
 		
 		if (error) {
 			return NextResponse.json({error: error}, {status: 500});
+		}
+		
+		if (getDetails) {
+			return NextResponse.json({user: data})
 		}
 		
 		return NextResponse.json({exists: !!(data[0].suuid && data[0].username)}, {status: 200});

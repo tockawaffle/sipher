@@ -1,6 +1,5 @@
 import {createClient} from "@/lib/supabase/server";
 import {NextResponse} from "next/server";
-import {SupabaseClient} from "@supabase/supabase-js";
 import getUserByUUID from "@/lib/api/helpers/getUserByUUID";
 import updateUserRequests from "@/lib/api/helpers/updateUserRequests";
 

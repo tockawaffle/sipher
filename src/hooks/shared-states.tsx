@@ -8,7 +8,8 @@ interface SharedState {
 	// UI States
 	isDrawerOpen: boolean
 	setIsDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>
-	
+	threads: SiPher.Thread[],
+	setThreads: React.Dispatch<React.SetStateAction<SiPher.Thread[]>>,
 	// Refs
 	drawerRef: React.RefObject<HTMLDivElement | null>
 }
@@ -20,6 +21,7 @@ const SharedStateContext = createContext<SharedState | undefined>(undefined)
 export function SharedStateProvider({children}: { children: React.ReactNode }) {
 	// UI States
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+	const [threads, setThreads] = useState<SiPher.Thread[]>([]);
 	
 	// Refs
 	const drawerRef = useRef<HTMLDivElement>(null)
@@ -30,6 +32,8 @@ export function SharedStateProvider({children}: { children: React.ReactNode }) {
 		// UI States
 		isDrawerOpen,
 		setIsDrawerOpen,
+		threads,
+		setThreads,
 		// Refs
 		drawerRef,
 	}

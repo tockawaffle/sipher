@@ -10,6 +10,8 @@ import {GearIcon} from "@radix-ui/react-icons";
 import Link from "next/link";
 import {useRealtime} from "@/components/main/realtime/threads";
 import {useUser} from "@/contexts/user";
+import {usePathname} from "next/navigation";
+import {useSharedState} from "@/hooks/shared-states";
 
 interface RightSidebarContentProps {
 	isDarkMode: boolean;
@@ -20,30 +22,22 @@ export default function RightSidebarContent(
 		isDarkMode,
 	}: RightSidebarContentProps) {
 	
-	const [selectedThreads, setSelectedThreads] = useState("");
-	const [threadMenu, setThreadMenu] = useState<SiPher.Messages[] | []>([]);
-	const [pendingRequest, setPendingRequest] = useState<number>(0);
-	
-	
-	const [threads, setThreads] = useState<SiPher.Messages[]>([]);
-	useRealtime(
-		{setThreads}
-	);
 	const [copied, setCopied] = useState<boolean>(false);
+	
+	const {threads, setThreads} = useSharedState();
+	useRealtime({setThreads, threads});
 	
 	const {user} = useUser();
 	const {username, suuid, requests = []} = user;
+	const pathname = usePathname();
 	
-	
-	// No need for separate requests state since it's in user object
 	const pendingRequests = requests?.length ?? 0;
 	
-	// Move fetch to separate function
 	const fetchThreads = useCallback(async () => {
 		try {
 			const req = await fetch("/api/user/get/threads")
 			if (req.ok) {
-				const {threads} = await req.json() as { threads: SiPher.Messages[] | [] }
+				const {threads} = await req.json() as { threads: SiPher.Thread[] | [] }
 				setThreads(threads)
 			} else {
 				setThreads([])
@@ -65,14 +59,12 @@ export default function RightSidebarContent(
 				body: JSON.stringify({participant: request}),
 			});
 			if (response.ok) {
-				// Optionally refresh threads after successful creation
 				fetchThreads();
 			}
 		} catch (error) {
 			console.error('Error accepting request:', error);
 		}
 	}
-	
 	
 	return (
 		<>
@@ -149,17 +141,19 @@ export default function RightSidebarContent(
 							<Separator className="my-2"/>
 							{threads && threads.length > 0 ? (
 								threads.map((thread, index) => {
+									// Gets the user's username instead of the SUUID to use as a recognizable user.
 									const otherUser = thread.participants.filter((user) => user !== username)[0];
-									console.log(thread)
 									return (
 										<li key={index}>
 											<Link href={`/${thread.thread_id}`} passHref>
-												<div className="flex flex-row items-center mt-2">
+												<Button
+													variant={pathname.replace("/", "") === thread.thread_id ? "secondary" : "ghost"}
+													className={`w-full justify-start text-[17px] p-2`}>
 													<Avatar className="w-8 h-8 mr-3">
 														<AvatarFallback>{otherUser.charAt(0).toUpperCase()}</AvatarFallback>
 													</Avatar>
 													{otherUser}
-												</div>
+												</Button>
 											</Link>
 										</li>
 									)
@@ -175,7 +169,7 @@ export default function RightSidebarContent(
 					<Button
 						variant="outline"
 						className="w-full justify-start text-[17px] py-2 text-primary"
-						onClick={() => window.location.href = "/config"}
+						onClick={() => window.location.href = "/settings"}
 					>
 						<GearIcon className="w-4 h-4 mr-3"/>
 						Settings
