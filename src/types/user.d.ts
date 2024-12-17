@@ -5,6 +5,7 @@ declare global {
 			participants: string[];
 			participant_suuids: string[];
 			messages: {
+				error?: boolean;
 				isSender: boolean;
 				id: string;  // UUID
 				content: string;  // The encrypted content (either sender_content or recipient_content)

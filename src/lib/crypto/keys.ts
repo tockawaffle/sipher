@@ -204,7 +204,7 @@ export class CryptoManager {
 			recipientPublicKey,
 			{
 				name: "RSA-OAEP",
-				hash: "SHA-256",
+				hash: "SHA-256",  // This is important!
 			},
 			true,
 			["encrypt"]
@@ -213,7 +213,7 @@ export class CryptoManager {
 		const encoder = new TextEncoder();
 		const encrypted = await crypto.subtle.encrypt(
 			{
-				name: "RSA-OAEP",
+				name: "RSA-OAEP"
 			},
 			publicKey,
 			encoder.encode(message)
@@ -236,15 +236,20 @@ export class CryptoManager {
 			atob(encryptedMessage).split('').map((char) => char.charCodeAt(0))
 		);
 		
-		const decrypted = await crypto.subtle.decrypt(
-			{
-				name: "RSA-OAEP",
-			},
-			privateKey,
-			encrypted
-		);
-		
-		return new TextDecoder().decode(decrypted);
+		try {
+			const decrypted = await crypto.subtle.decrypt(
+				{
+					name: "RSA-OAEP"  // hash is only needed during key import
+				},
+				privateKey,
+				encrypted
+			);
+			
+			return new TextDecoder().decode(decrypted);
+		} catch (e) {
+			console.error(`Got an error while trying to decrypt the message: ${e}`);
+			throw e;
+		}
 	}
 	
 	/**

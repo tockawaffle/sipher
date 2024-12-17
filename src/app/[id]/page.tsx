@@ -86,23 +86,30 @@ export default function ChatPage() {
 				},
 				async (payload) => {
 					if (payload.eventType === "INSERT") {
-						const messageData = payload.new as SiPher.RealtimeMessageData;
-						const isSender = messageData.sender_uuid === currentUser.uuid;
-						
-						const decryptedMsg = await CryptoManager.decryptMessage(messageData.sender_content)
-						console.log(`Hello there`)
-						setMessages((prevState) => {
-							return [
-								...prevState,
-								{
-									id: messageData.id,
-									content: decryptedMsg,
-									sender_uuid: messageData.sender_uuid,
-									created_at: messageData.created_at,
-									isSender
-								}
-							]
-						})
+						try {
+							const messageData = payload.new as SiPher.RealtimeMessageData;
+							const isSender = messageData.sender_uuid === currentUser.uuid;
+							
+							const decryptedMsg = await CryptoManager.decryptMessage(
+								// I forgot to add this, without this, it's pretty much unusable.
+								isSender ? messageData.sender_content : messageData.recipient_content
+							)
+							
+							setMessages((prevState) => {
+								return [
+									...prevState,
+									{
+										id: messageData.id,
+										content: decryptedMsg,
+										sender_uuid: messageData.sender_uuid,
+										created_at: messageData.created_at,
+										isSender
+									}
+								]
+							})
+						} catch (e: any) {
+							console.error(`Something went wrong on the message update: ${e}`)
+						}
 					}
 				}
 			)
@@ -286,8 +293,8 @@ export default function ChatPage() {
 							>
 								<div className={`max-w-[70%] rounded-lg p-3 ${
 									message.isSender
-										? 'bg-primary text-primary-foreground'
-										: 'bg-secondary'
+										? message.error ? 'bg-red-500' : 'bg-primary text-primary-foreground'
+										: message.error ? 'bg-red-500' : 'bg-secondary'
 								}`}>
 									<p>{message.content}</p>
 									<div className="flex items-center justify-end space-x-1 mt-1">
