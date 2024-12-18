@@ -239,7 +239,7 @@ export class CryptoManager {
 		try {
 			const decrypted = await crypto.subtle.decrypt(
 				{
-					name: "RSA-OAEP"  // hash is only needed during key import
+					name: "RSA-OAEP"
 				},
 				privateKey,
 				encrypted

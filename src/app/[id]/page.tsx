@@ -46,9 +46,9 @@ import {useSharedState} from "@/hooks/shared-states";
 import {createBrowserClient} from '@/lib/supabase/browser'
 import {CryptoManager} from "@/lib/crypto/keys";
 import {REALTIME_SUBSCRIBE_STATES} from "@supabase/realtime-js";
+import ChatSkeleton from "@/app/[id]/skeleton";
 
 export default function ChatPage() {
-	const {theme} = useTheme();
 	const {toast} = useToast();
 	const supabase = createBrowserClient();
 	
@@ -59,7 +59,7 @@ export default function ChatPage() {
 	const [showUserDialog, setShowUserDialog] = useState(false);
 	const [isEncrypted, setIsEncrypted] = useState(true);
 	
-	const [realtimeSubscribed, setRealtimeSubscribed] = useState<REALTIME_SUBSCRIBE_STATES>()
+	const [realtimeSubscribed, setRealtimeSubscribed] = useState<REALTIME_SUBSCRIBE_STATES>(REALTIME_SUBSCRIBE_STATES.CLOSED);
 	
 	const [isLoaded, setIsLoaded] = useState<boolean>(false);
 	
@@ -115,13 +115,14 @@ export default function ChatPage() {
 			)
 			.subscribe((status) => {
 				setRealtimeSubscribed(status)
-				console.log('Realtime subscription status:', status)
+				console.info(`Subscription for thread ${threadId} has the status "${status}"`)
+				console.info("If closed, something bad might be happening at the backend.")
 			})
 		
 		return () => {
 			supabase.removeChannel(channel)
 		}
-	}, [threadId])
+	}, [threadId, currentUser.uuid, supabase])
 	
 	useEffect(() => {
 		const getUserDataAndChat = async () => {
@@ -157,17 +158,29 @@ export default function ChatPage() {
 			setMessages([])
 			setIsLoaded(false)
 		}
-	}, [setUser, setMessages, setIsLoaded, threads])
+	}, [setUser, setMessages, setIsLoaded, threads, currentUser.suuid, currentUser.uuid, getUser, threadId, toast]) // Damn, quite a lot of dependencies, but lint said I should add it so....
+	
+	useEffect(() => {
+		if (!realtimeSubscribed) return;
+		
+		const timeoutId = setTimeout(() => {
+			if (realtimeSubscribed === 'TIMED_OUT' || realtimeSubscribed === 'CLOSED') {
+				toast({
+					title: "Connection Issue",
+					description: "You might need to restart your browser due to connection issues.",
+					variant: "destructive",
+					duration: 10000,
+				});
+			}
+		}, 10000);
+		
+		return () => clearTimeout(timeoutId);
+	}, [realtimeSubscribed, toast]);
 	
 	if (!isLoaded || !user || realtimeSubscribed !== "SUBSCRIBED") {
-		return (
-			<>
-				a
-			</>
-		)
+		return <ChatSkeleton/>;
 	}
 	
-	// Mock functions - replace with actual implementations
 	const checkUserValidity = async () => {
 		// Implementation for checking user validity
 		setShowUserDialog(true);
@@ -193,12 +206,10 @@ export default function ChatPage() {
 			user.public_key,
 			threadId
 		)
-		
 	};
 	
 	return (
 		<div className="flex flex-col h-screen max-h-[900px] w-full">
-			{/* Chat Header */}
 			<div className="flex items-center justify-between p-4 border-b">
 				<div className="flex items-center space-x-4">
 					<Avatar>
@@ -279,7 +290,6 @@ export default function ChatPage() {
 				</div>
 			</div>
 			
-			{/* Chat Messages */}
 			<ScrollArea className="flex-1 p-4">
 				<div className="space-y-4">
 					<AnimatePresence>
@@ -312,7 +322,6 @@ export default function ChatPage() {
 				</div>
 			</ScrollArea>
 			
-			{/* Input Area */}
 			<div className="p-4 border-t">
 				<div className="flex space-x-2">
 					<Input
@@ -332,7 +341,6 @@ export default function ChatPage() {
 				</div>
 			</div>
 			
-			{/* Dialogs */}
 			<AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
 				<AlertDialogContent>
 					<AlertDialogHeader>

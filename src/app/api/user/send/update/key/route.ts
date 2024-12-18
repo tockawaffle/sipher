@@ -1,4 +1,3 @@
-// app/api/user/keys/update/route.ts
 import {createClient} from "@/lib/supabase/server";
 import {NextResponse} from "next/server";
 

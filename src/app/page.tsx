@@ -26,7 +26,7 @@ export default function SiPher() {
 	
 	/** CryptoManager Alert */
 	const [privateKeyPresent, setPrivateKeyPresent] = useState(true);
-	const [backupPanel, setBackupPanel] = useState(false);
+	const [backupPanel, setBackupPanel] = useState(false); // I still need to do this, but... ugh.
 	
 	/** Consent Form states */
 	const [showConsentForm, setShowConsentForm] = useState(false);
@@ -206,7 +206,7 @@ export default function SiPher() {
 			<MainPageAlerts/>
 			
 			<div
-				className={`relative flex-1 ${currentTheme === "dark" ? "dark" : ""} w-full max-h-[600px] bg-gradient-to-b from-background to-background/95`}>
+				className={`relative flex-1 ${currentTheme === "dark" ? "dark" : ""} w-full bg-gradient-to-b from-background to-background/95`}>
 				<div className="relative flex flex-col justify-center items-center h-screen px-4 select-none space-y-8">
 					<div className="relative group">
 						<div
@@ -287,7 +287,7 @@ export default function SiPher() {
 						<p className="text-lg md:text-xl font-medium leading-relaxed text-primary">
 							F.A.Q
 						</p>
-						<Accordion type={"single"} collapsible className={"w-full-30%"}>
+						<Accordion type={"single"} collapsible className={"w-full"}>
 							<AccordionItem value={"works"}>
 								<AccordionTrigger>How does this works?</AccordionTrigger>
 								<AccordionContent asChild>

@@ -8,7 +8,7 @@ import {Check, LogOut, Mail, MailPlus, X} from "lucide-react";
 import {Button} from "@/components/ui/button";
 import {GearIcon} from "@radix-ui/react-icons";
 import Link from "next/link";
-import {useRealtime} from "@/components/main/realtime/threads";
+import {useRealtime} from "@/components/main/realtime";
 import {useUser} from "@/contexts/user";
 import {usePathname} from "next/navigation";
 import {useSharedState} from "@/hooks/shared-states";
@@ -25,7 +25,7 @@ export default function RightSidebarContent(
 	const [copied, setCopied] = useState<boolean>(false);
 	
 	const {threads, setThreads} = useSharedState();
-	useRealtime({setThreads, threads});
+	useRealtime({setThreads});
 	
 	const {user} = useUser();
 	const {username, suuid, requests = []} = user;
@@ -46,7 +46,7 @@ export default function RightSidebarContent(
 			console.log(error);
 			setThreads([])
 		}
-	}, []);
+	}, [setThreads]);
 	
 	useEffect(() => {
 		fetchThreads();
@@ -92,7 +92,7 @@ export default function RightSidebarContent(
 					</div>
 				</div>
 				<Separator className="my-2"/>
-				<ScrollArea className="flex-grow max-h-[590px] px-4 py-4">
+				<ScrollArea className="flex-grow max-h-[500px] px-4 py-4">
 					<nav>
 						<ul className="space-y-1">
 							<DropdownMenu>

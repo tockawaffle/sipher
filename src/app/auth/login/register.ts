@@ -20,7 +20,7 @@ export default async function Register(username: string, password: string) {
 			headers: {
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify({username, password, publicKey: exportedPublic}), // Stringifies the JSON
+			body: JSON.stringify({username, password, public_key: exportedPublic}), // Stringifies the JSON
 		});
 		
 		// Default error handler, if not OK just return whatever the API returned

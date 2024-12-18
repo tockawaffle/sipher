@@ -54,11 +54,13 @@ export default async function RootLayout(
 		<ThemeProvider>
 			<UserProvider initialUser={initialUser}>
 				<SharedStateProvider>
-					<div className={`max-h-[1080px] p-6 bg-secondary`}>
-						<div className="flex bg-background">
-							<Sidebar>
-								{children}
-							</Sidebar>
+					<div className="min-h-screen flex items-center justify-center p-0 sm:p-4">
+						<div className="w-full min-h-screen sm:min-h-0 sm:h-[900px] max-w-[1920px] flex bg-secondary sm:p-6">
+							<div className="w-full h-full flex bg-background sm:rounded-lg overflow-hidden">
+								<Sidebar>
+									{children}
+								</Sidebar>
+							</div>
 						</div>
 					</div>
 				</SharedStateProvider>

@@ -81,7 +81,7 @@ function Sidebar(
 					</motion.div>
 				)}
 			</AnimatePresence>
-			<div className={"max-h-[900px] w-full"}>{
+			<div className={"flex-1  overflow-auto"}>{
 				children ?? null
 			}
 			</div>

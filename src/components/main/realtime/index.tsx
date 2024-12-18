@@ -1,31 +1,27 @@
 // hooks/useRealtime.ts
-import {Dispatch, SetStateAction, useEffect} from 'react'
+import {Dispatch, SetStateAction, useCallback, useEffect} from 'react'
 import {createBrowserClient} from '@/lib/supabase/browser'
 import {useUser} from '@/contexts/user'
-import {useToast} from '@/hooks/use-toast'
 
 interface UseRealtimeProps {
 	setThreads: Dispatch<SetStateAction<SiPher.Thread[]>>;
-	threads: SiPher.Thread[]
 }
 
-export function useRealtime({setThreads, threads}: UseRealtimeProps) {
+export function useRealtime({setThreads}: UseRealtimeProps) {
 	const supabase = createBrowserClient();
 	const {user, updateUser} = useUser();
-	const {toast} = useToast();
 	
-	const fetchAndUpdateThreads = async () => {
+	const fetchAndUpdateThreads = useCallback(async () => {
 		try {
 			const response = await fetch("/api/user/get/threads");
 			if (response.ok) {
 				const {threads} = await response.json();
-				console.log('Setting threads:', threads);
 				setThreads(threads);
 			}
 		} catch (error) {
 			console.error('Error fetching threads:', error);
 		}
-	};
+	}, [setThreads])
 	
 	useEffect(() => {
 		if (!user) return;
@@ -77,5 +73,5 @@ export function useRealtime({setThreads, threads}: UseRealtimeProps) {
 			userUpdate.unsubscribe()
 		}
 		
-	}, [user?.uuid]);
+	}, [user?.uuid, fetchAndUpdateThreads, supabase, updateUser, user]);
 }

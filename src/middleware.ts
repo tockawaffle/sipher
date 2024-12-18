@@ -30,6 +30,7 @@ export async function middleware(request: NextRequest) {
 	try {
 		const supabase = await createClient();
 		const {data: {user}, error} = await supabase.auth.getUser();
+		
 		const path = request.nextUrl.pathname;
 		
 		if (!user && !isPublicRoute(path)) {
@@ -42,6 +43,7 @@ export async function middleware(request: NextRequest) {
 			redirect.headers.set('x-current-pathname', path);
 			return redirect;
 		}
+		
 		
 		if (user && path.startsWith('/auth/') && !path.includes("/auth/complete")) {
 			return NextResponse.redirect(new URL('/', request.url));

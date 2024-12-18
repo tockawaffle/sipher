@@ -2,7 +2,7 @@ import {NextResponse} from 'next/server'
 import {createClient} from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
-	const {username, password} = await request.json()
+	const {username, password, public_key} = await request.json()
 	const supabase = await createClient()
 	
 	try {
@@ -15,6 +15,10 @@ export async function POST(request: Request) {
 				{
 					status: 500
 				})
+		} else if (!username || !password || !public_key) {
+			return NextResponse.json({
+				error: "Missing params"
+			}, {status: 400})
 		}
 		
 		// First create the auth user
@@ -32,6 +36,7 @@ export async function POST(request: Request) {
 			.insert({
 				uuid: user.id,
 				username: username,
+				public_key
 			})
 		
 		if (insertError) {

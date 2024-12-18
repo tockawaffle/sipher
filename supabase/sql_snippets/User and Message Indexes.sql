@@ -1,0 +1,1 @@
+CREATE INDEX idx_users_suuid ON users (suuid);CREATE INDEX idx_users_indexable ON users (indexable) WHERE indexable = true;CREATE INDEX idx_thread_participants_user ON thread_participants (user_uuid);CREATE INDEX idx_messages_thread ON messages (thread_id);
