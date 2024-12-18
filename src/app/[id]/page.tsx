@@ -158,7 +158,7 @@ export default function ChatPage() {
 			setMessages([])
 			setIsLoaded(false)
 		}
-	}, [setUser, setMessages, setIsLoaded, threads, currentUser.suuid, currentUser.uuid, getUser, threadId, toast]) // Damn, quite a lot of dependencies, but lint said I should add it so....
+	}, [threadId, currentUser.uuid, supabase]) // Never trusting the lint again
 	
 	useEffect(() => {
 		if (!realtimeSubscribed) return;
