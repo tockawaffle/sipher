@@ -1,1 +1,0 @@
--- First, verify realtime is enabledSELECT *FROM pg_publication_tablesWHERE pubname = 'supabase_realtime'  AND tablename = 'messages';-- Check REPLICA IDENTITYSELECT relname, relreplidentFROM pg_classWHERE oid = 'messages'::regclass;

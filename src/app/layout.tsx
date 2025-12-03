@@ -1,73 +1,57 @@
-// app/layout.tsx
-import type {Metadata} from "next";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
+import { ConvexClientProvider } from "@/lib/providers/Convex";
+import type { Metadata } from "next";
 import "./globals.css";
-import {Public_Sans} from 'next/font/google';
-import {UserProvider} from "@/contexts/user";
-import Sidebar from "@/components/main/sidebar/sidebar";
-import {getAuthenticatedUser} from "@/lib/auth";
-import {SharedStateProvider} from "@/hooks/shared-states";
-import ThemeProvider from "@/components/ui/theme-provider";
-import {headers} from "next/headers";
-import {Toaster} from "@/components/ui/toaster";
-
-const publicSans = Public_Sans({
-	subsets: ['latin'],
-	display: 'swap',
-	variable: '--font-public-sans'
-});
 
 export const metadata: Metadata = {
-	title: "SiPher - Where Shadows Live",
-	description: "Secrecy? Not here, absolutely.",
-	icons: [{rel: "icon", url: "/logos/logo.png"}],
+	title: "SiPher - Don't trust us. We don't trust you.",
+	description: "SiPher is a platform made for communication. Secure? Maybe. Reliable? I don't think so. We don't trust you. We don't trust us. We don't trust anyone.",
+	icons: {
+		icon: [
+			{
+				url: "/assets/logo/logo-white.svg",
+				href: "/assets/logo/logo-white.svg",
+				media: "(prefers-color-scheme: dark)",
+				type: "image/svg+xml",
+				sizes: "32x32",
+				rel: "icon"
+			},
+			{
+				url: "/assets/logo/logo-dark.svg",
+				href: "/assets/logo/logo-dark.svg",
+				media: "(prefers-color-scheme: light)",
+				type: "image/svg+xml",
+				sizes: "32x32",
+				rel: "icon"
+			}
+		]
+	}
 };
 
-export default async function RootLayout(
-	{
-		children,
-	}: {
-		children: React.ReactNode & { props?: { childProp?: { segment?: string } } };
-	}) {
-	const initialUser = await getAuthenticatedUser();
-	const isAuthPage = (await headers()).get("x-current-pathname")?.includes("auth");
-	
-	// Auth layout
-	if (isAuthPage) {
-		return (
-			<html lang="en" suppressHydrationWarning>
-			<body className={`${publicSans.variable} font-sans antialiased`}>
-			<ThemeProvider>
-				<UserProvider initialUser={initialUser}>
-					{children}
-				</UserProvider>
-			</ThemeProvider>
-			<Toaster/>
-			</body>
-			</html>
-		);
-	}
-	
-	// Main layout
+export default function RootLayout({
+	children,
+}: Readonly<{
+	children: React.ReactNode;
+}>) {
+
 	return (
-		<html lang="en">
-		<body className={`${publicSans.variable} font-sans antialiased`}>
-		<ThemeProvider>
-			<UserProvider initialUser={initialUser}>
-				<SharedStateProvider>
-					<div className="min-h-screen flex items-center justify-center p-0 sm:p-4">
-						<div className="w-full min-h-screen sm:min-h-0 sm:h-[900px] max-w-[1920px] flex bg-secondary sm:p-6">
-							<div className="w-full h-full flex bg-background sm:rounded-lg overflow-hidden">
-								<Sidebar>
-									{children}
-								</Sidebar>
-							</div>
-						</div>
-					</div>
-				</SharedStateProvider>
-			</UserProvider>
-			<Toaster/>
-		</ThemeProvider>
-		</body>
+		<html lang="en" suppressHydrationWarning>
+			<body
+				className="antialiased min-h-screen bg-background"
+			>
+				<ConvexClientProvider>
+					<ThemeProvider
+						attribute="class"
+						defaultTheme="system"
+						enableSystem
+						disableTransitionOnChange
+					>
+						{children}
+					</ThemeProvider>
+					<Toaster richColors />
+				</ConvexClientProvider>
+			</body>
 		</html>
 	);
 }
