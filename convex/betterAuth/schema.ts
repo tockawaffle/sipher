@@ -16,11 +16,21 @@ export const tables = {
 		userId: v.optional(v.union(v.null(), v.string())),
 		username: v.optional(v.union(v.null(), v.string())),
 		displayUsername: v.optional(v.union(v.null(), v.string())),
+		metadata: v.optional(v.object({
+			phrasePreference: v.union(v.literal("comforting"), v.literal("mocking"), v.literal("both")),
+		})),
+		status: v.optional(v.object({
+			status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
+			isUserSet: v.boolean(),
+		})),
+		friends: v.optional(v.array(v.string())),
 	})
 		.index("email_name", ["email", "name"])
 		.index("name", ["name"])
 		.index("userId", ["userId"])
-		.index("username", ["username"]),
+		.index("username", ["username"])
+		.index("status", ["status"])
+		.index("friends", ["friends"]),
 	session: defineTable({
 		expiresAt: v.number(),
 		token: v.string(),

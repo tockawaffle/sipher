@@ -35,8 +35,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   displayUsername?: null | string;
                   email: string;
                   emailVerified: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt: number;
                   userId?: null | string;
                   username?: null | string;
@@ -123,6 +131,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -334,6 +345,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -618,8 +632,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name?: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -636,6 +658,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -880,8 +905,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name?: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -898,6 +931,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1141,6 +1177,17 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
             userId: string;
           },
+          any,
+          Name
+        >;
+      };
+    };
+    user: {
+      index: {
+        updateUserStatus: FunctionReference<
+          "mutation",
+          "internal",
+          { isUserSet: boolean; status: string },
           any,
           Name
         >;

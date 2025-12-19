@@ -3,6 +3,7 @@ import { convex } from "@convex-dev/better-auth/plugins";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { captcha, oneTimeToken, openAPI, username } from "better-auth/plugins";
 import { v } from "convex/values";
+import { z } from "zod";
 import { components } from "./_generated/api";
 import { DataModel } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
@@ -22,6 +23,15 @@ export const authComponent = createClient<DataModel, typeof authSchema>(
 	}
 );
 
+const metadataSchema = z.object({
+	phrasePreference: z.enum(["comforting", "mocking", "both"]),
+})
+
+const statusSchema = z.object({
+	status: z.enum(["online", "busy", "offline", "away"]),
+	isUserSet: z.boolean(),
+});
+
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 	return {
 		baseURL: siteUrl,
@@ -30,6 +40,52 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 			enabled: true,
 			requireEmailVerification: false,
 			autoSignIn: true
+		},
+		user: {
+			additionalFields: {
+				metadata: {
+					type: "json",
+					defaultValue: () => {
+						const metadata = metadataSchema.parse({
+							phrasePreference: "comforting",
+						})
+
+						return metadata.phrasePreference;
+					},
+					required: false,
+				},
+				friends: {
+					type: "string[]",
+					defaultValue: [],
+					required: false,
+					index: true
+				},
+				status: {
+					type: "json",
+					defaultValue: () => {
+						return {
+							status: "offline",
+							isUserSet: false,
+						}
+					},
+					required: false,
+					index: true,
+					transform: {
+						input: (status) => {
+							return statusSchema.safeParse(status).success ? status : {
+								status: "offline",
+								isUserSet: false,
+							};
+						},
+						output: (status) => {
+							return statusSchema.safeParse(status).success ? status : {
+								status: "offline",
+								isUserSet: false,
+							};
+						}
+					}
+				}
+			},
 		},
 		plugins: [
 			convex({
@@ -97,6 +153,19 @@ export const retrieveServerOlmAccount = query({
 	handler: async (ctx, args) => {
 		return ctx.runQuery(components.betterAuth.olm.index.retrieveServerOlmAccount, {
 			userId: args.userId,
+		});
+	},
+});
+
+export const updateUserStatus = mutation({
+	args: {
+		status: v.string(),
+		isUserSet: v.boolean(),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.user.index.updateUserStatus, {
+			status: args.status,
+			isUserSet: args.isUserSet,
 		});
 	},
 });

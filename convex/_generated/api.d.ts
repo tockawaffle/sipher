@@ -62,8 +62,16 @@ export declare const components: {
                   displayUsername?: null | string;
                   email: string;
                   emailVerified: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt: number;
                   userId?: null | string;
                   username?: null | string;
@@ -149,6 +157,9 @@ export declare const components: {
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -359,6 +370,9 @@ export declare const components: {
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -640,8 +654,16 @@ export declare const components: {
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name?: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -658,6 +680,9 @@ export declare const components: {
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -901,8 +926,16 @@ export declare const components: {
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
+                  friends?: Array<string>;
                   image?: null | string;
+                  metadata?: {
+                    phrasePreference: "comforting" | "mocking" | "both";
+                  };
                   name?: string;
+                  status?: {
+                    isUserSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -919,6 +952,9 @@ export declare const components: {
                     | "userId"
                     | "username"
                     | "displayUsername"
+                    | "metadata"
+                    | "status"
+                    | "friends"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1160,6 +1196,16 @@ export declare const components: {
             oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
             userId: string;
           },
+          any
+        >;
+      };
+    };
+    user: {
+      index: {
+        updateUserStatus: FunctionReference<
+          "mutation",
+          "internal",
+          { isUserSet: boolean; status: string },
           any
         >;
       };

@@ -6,36 +6,35 @@ import {
 	GearSix,
 	MicrophoneSlash
 } from "@phosphor-icons/react";
-import { User } from "better-auth";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "../avatar";
 import { Button } from "../button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../tooltip";
 
-type UserStatus = "online" | "idle" | "dnd" | "offline";
+type UserStatus = "online" | "busy" | "offline" | "away";
 
 interface UserFloatingCardProps {
-	user: User;
+	user: any; // Too lazy to type the user type
 	status?: UserStatus;
 	activity?: string;
 }
 
 const statusColors: Record<UserStatus, string> = {
 	online: "bg-emerald-500",
-	idle: "bg-amber-500",
-	dnd: "bg-red-500",
+	busy: "bg-amber-500",
+	away: "bg-yellow-500",
 	offline: "bg-muted-foreground"
 };
 
 export default function UserFloatingCard({
 	user,
-	status = "online",
-	activity
 }: UserFloatingCardProps) {
 	const [cardOpen, setCardOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const contentRef = useRef<HTMLDivElement | null>(null);
+	const status = user.status?.status;
+	const activity = user.status?.activity;
 
 	// Close when clicking outside the trigger/content
 	useEffect(() => {
@@ -114,7 +113,7 @@ export default function UserFloatingCard({
 								<span
 									className={cn(
 										"absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[3px] border-secondary",
-										statusColors[status]
+										status ? statusColors[status as UserStatus] : "bg-muted-foreground"
 									)}
 								/>
 							</div>

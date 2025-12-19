@@ -11,6 +11,7 @@
 import type * as adapter from "../adapter.js";
 import type * as auth from "../auth.js";
 import type * as olm_index from "../olm/index.js";
+import type * as user_index from "../user/index.js";
 
 import type {
   ApiFromModules,
@@ -23,6 +24,7 @@ const fullApi: ApiFromModules<{
   adapter: typeof adapter;
   auth: typeof auth;
   "olm/index": typeof olm_index;
+  "user/index": typeof user_index;
 }> = anyApi as any;
 
 /**

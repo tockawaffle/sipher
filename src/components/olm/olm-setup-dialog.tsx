@@ -96,6 +96,9 @@ export default function OlmSetupDialog({
 						/>
 						<DialogFooter className="gap-2">
 							<Button variant="outline" onClick={() => onOpenChange(false)}>
+								Import Keys from Backup
+							</Button>
+							<Button variant="outline" onClick={() => onOpenChange(false)}>
 								Cancel
 							</Button>
 							<Button onClick={handleSubmit} disabled={!localPassword.trim()}>
