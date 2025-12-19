@@ -17,7 +17,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SignInForm } from "./components/sign-in-form";
 import { SignUpForm } from "./components/sign-up-form";
@@ -28,20 +28,24 @@ export default function AuthPage() {
 	const [method, setMethod] = useState<"signIn" | "signUp">("signIn");
 	const captchaRef = useRef<CaptchaRef>(null);
 
+
+
+	useEffect(() => {
+		if (error && error.status !== 404) {
+			console.error("[AuthPage] > Error:", error);
+			toast.error(error.message);
+		} else if (data) {
+			console.log(`[AuthPage] > User ${data.user.username} logged in, redirecting to home...`);
+			redirect("/");
+		}
+	}, [error, data])
+
 	if (isPending) {
 		return (
 			<div className="flex items-center justify-center h-screen w-full bg-background">
 				<Spinner className="size-10 animate-spin text-primary" />
 			</div>
 		);
-	}
-
-	if (error && error.status !== 404) {
-		console.error("[AuthPage] > Error:", error);
-		toast.error(error.message);
-	} else if (data) {
-		console.log(`[AuthPage] > User ${data.user.username} logged in, redirecting to home...`);
-		redirect("/");
 	}
 
 	const toggleMethod = () => {
@@ -107,7 +111,7 @@ export default function AuthPage() {
 						</AnimatePresence>
 					</CardHeader>
 					<CardContent>
-						{method === "signIn" ? <SignInForm captchaToken={captchaToken} /> : <SignUpForm captchaToken={captchaToken} />}
+						{method === "signIn" ? <SignInForm captchaToken={captchaToken} /> : <SignUpForm captchaToken={captchaToken} setShowSignIn={() => setMethod("signIn")} />}
 					</CardContent>
 					<CardFooter className="flex flex-col gap-4 pt-2">
 						<div className="text-center text-sm text-muted-foreground">

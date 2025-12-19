@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth/client";
 import { ErrorContext } from "better-auth/react";
 import { Check, Eye, EyeOff, Loader2, RefreshCw, X } from "lucide-react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export function SignUpForm(
-	{ captchaToken }: { captchaToken: string | null }
+	{ captchaToken, setShowSignIn }: { captchaToken: string | null, setShowSignIn: (show: boolean) => void }
 ) {
+	const router = useRouter();
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
@@ -51,27 +52,9 @@ export function SignUpForm(
 				},
 				onSuccess: async () => {
 					setLoading(false);
-					toast.success("Account created successfully, logging in...");
-					await authClient.signIn.username(
-						{
-							username,
-							password,
-							fetchOptions: {
-								headers: {
-									"x-captcha-response": captchaToken ?? "",
-								},
-							},
-						},
-						{
-							onSuccess: () => {
-								toast.success("Logged in successfully");
-								redirect("/");
-							},
-							onError: (ctx: ErrorContext) => {
-								toast.error(ctx.error.message);
-							},
-						}
-					);
+					toast.success("Account created successfully, now log in to continue!");
+					setShowSignIn(true);
+					router.push("/");
 				},
 				onError: (ctx: ErrorContext) => {
 					setLoading(false);

@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# OLM (copied from node_modules by scripts/copy-olm.js)
+/public/olm.js
+/public/olm.wasm

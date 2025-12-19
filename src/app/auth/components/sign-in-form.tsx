@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth/client";
 import { ErrorContext } from "better-auth/react";
 import { Loader2 } from "lucide-react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export function SignInForm(
 	{ captchaToken }: { captchaToken: string | null }
 ) {
+	const router = useRouter();
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [loading, setLoading] = useState(false);
@@ -33,10 +34,11 @@ export function SignInForm(
 				onRequest: () => {
 					setLoading(true);
 				},
-				onSuccess: () => {
+				onSuccess: (d: any) => {
+					console.log(d)
 					setLoading(false);
 					toast.success("Signed in successfully");
-					redirect("/");
+					router.push("/");
 				},
 				onError: (ctx: ErrorContext) => {
 					setLoading(false);

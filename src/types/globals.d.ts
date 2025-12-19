@@ -13,13 +13,37 @@ declare global {
 
 		type SocketConnectionState = "connected" | "disconnected" | "connecting"
 
-		enum MessageType {
+		enum ChannelType {
 			DM = "DM",
 			GROUP = "GROUP",
 			REGIONAL = "REGIONAL",
 			GLOBAL = "GLOBAL",
 			SERVER = "SERVER",
 			SYSTEM = "SYSTEM"
+		}
+
+		type Channel = {
+			id: string,
+			name: string,
+			type: typeof ChannelType.DM | typeof ChannelType.GROUP | typeof ChannelType.REGIONAL | typeof ChannelType.GLOBAL | typeof ChannelType.SERVER | typeof ChannelType.SYSTEM
+			participants: SipherUser[]
+			times: {
+				createdAt: number,
+				updatedAt: number,
+				lastMessageAt?: number,
+				lastMessage?: Message,
+			},
+			metadata?: {
+				description?: string,
+				subtitle?: string,
+				icon?: string,
+				banner?: string,
+				cover?: string,
+				colors?: {
+					primary: string,
+					accent: string,
+				}
+			}
 		}
 
 		type SipherUser = {
@@ -62,28 +86,28 @@ declare global {
 		}
 
 		type MessageRecipient = {
-			type: typeof MessageType.DM,
+			type: typeof ChannelType.DM,
 			socketId: Socket["id"]
 			id: string,
 			user: SipherUser
 		} | {
-			type: typeof MessageType.GROUP,
+			type: typeof ChannelType.GROUP,
 			id: string,
 			group: Group
 		} | {
-			type: typeof MessageType.REGIONAL,
+			type: typeof ChannelType.REGIONAL,
 			id: string,
 			region: Regional
 		} | {
-			type: typeof MessageType.GLOBAL,
+			type: typeof ChannelType.GLOBAL,
 			id: string,
 			global: Global
 		} | {
-			type: typeof MessageType.SERVER,
+			type: typeof ChannelType.SERVER,
 			id: string,
 			server: Server
 		} | {
-			type: typeof MessageType.SYSTEM,
+			type: typeof ChannelType.SYSTEM,
 			id: string,
 			system: System
 		}

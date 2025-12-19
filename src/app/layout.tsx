@@ -1,5 +1,6 @@
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { getToken } from "@/lib/auth/auth-server";
 import { ConvexClientProvider } from "@/lib/providers/Convex";
 import type { Metadata } from "next";
 import "./globals.css";
@@ -29,18 +30,18 @@ export const metadata: Metadata = {
 	}
 };
 
-export default function RootLayout({
+export default async function RootLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-
+	const token = await getToken();
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<body
 				className="antialiased min-h-screen bg-background"
 			>
-				<ConvexClientProvider>
+				<ConvexClientProvider initialToken={token ?? null}>
 					<ThemeProvider
 						attribute="class"
 						defaultTheme="system"

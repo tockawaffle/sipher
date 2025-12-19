@@ -66,6 +66,18 @@ export const tables = {
 		privateKey: v.string(),
 		createdAt: v.number(),
 	}),
+	olmAccount: defineTable({
+		userId: v.string(),
+		identityKey: v.object({
+			curve25519: v.string(),
+			ed25519: v.string(),
+		}),
+		oneTimeKeys: v.array(v.object({
+			keyId: v.string(),
+			publicKey: v.string(),
+		})),
+	})
+		.index("userId", ["userId"]),
 };
 
 const schema = defineSchema(tables);
