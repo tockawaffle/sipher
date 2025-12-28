@@ -8,7 +8,7 @@ export const authClient = createAuthClient({
 		convexClient(),
 		usernameClient(),
 		oneTimeTokenClient(),
-		inferAdditionalFields<typeof auth>()
+		inferAdditionalFields<typeof auth>(),
 	],
 	sessionOptions: {
 		refetchOnWindowFocus: false,

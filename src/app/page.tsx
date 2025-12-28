@@ -1,5 +1,6 @@
 "use client"
 import AppSidebar from "@/components/home";
+import FriendRequestModal from "@/components/home/modals/friendRequest";
 import OlmSetupDialog from "@/components/olm/olm-setup-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,11 +10,10 @@ import { useOlmSetup } from "@/hooks/use-olm-setup";
 import { useSocket } from "@/hooks/use-socket";
 import { authClient } from "@/lib/auth/client";
 import { useMutation, useQuery } from "convex/react";
-import { PlusIcon, SearchIcon, UsersIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SettingsIcon, UsersIcon } from "lucide-react";
 import { redirect } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../convex/_generated/api";
-
 const mockPhrases = [
 	"No bitches? Womp womp",
 	"You're all alone",
@@ -94,9 +94,9 @@ const comfortingPhrases = [
 ];
 
 export default function Home() {
-	const { data, error, isPending } = authClient.useSession();
+	const { data, error, isPending, refetch } = authClient.useSession();
 
-	const [page, setPage] = useState<"friends" | "settings">("friends");
+	const [page, setPage] = useState<"friends" | "support">("friends");
 	const [currentChannel, setCurrentChannel] = useState<SiPher.Channel | null>(null);
 	const [openDmChannels, setOpenDmChannels] = useState<SiPher.Channel[] | []>([]);
 	const [availableServers, setAvailableServers] = useState<SiPher.Server[] | []>([]);
@@ -104,29 +104,55 @@ export default function Home() {
 	// Friends page state
 	const [friendsPage, setFriendsPage] = useState<"all" | "available">("all");
 	const [friendsSearch, setFriendsSearch] = useState<string>("");
+	const [friendModal, setFriendModal] = useState<boolean>(false);
 
 	const hasServerOlm = useQuery(
 		api.auth.retrieveServerOlmAccount,
 		data?.user?.id ? { userId: data.user.id } : "skip"
 	);
 
+	// Get user status from separate table
+	const userStatus = useQuery(api.auth.getUserStatus);
+
+	// Get friends list (reactive)
+	const friends = useQuery(api.auth.getFriends);
+
+	// Type for friends
+	type Friend = NonNullable<typeof friends>[number];
+
 	// Mutation for sending keys to server
 	const sendKeysToServer = useMutation(api.auth.sendKeysToServer);
 
-	const updateUserStatus = useMutation(api.auth.updateUserStatus);
+
+	const updateUserMetadata = useMutation(api.auth.updateUserMetadata);
 	useEffect(() => {
 		if (!data) return;
 
-		const status = data.user.status
-		if (!status) return;
-
-		if (status.status === "offline" && !status.isUserSet) {
-			updateUserStatus({ status: "online", isUserSet: false });
+		const metadata = data.user.metadata
+		if (!metadata) {
+			console.debug(
+				"[Home] > User metadata set",
+				data.user.metadata
+			)
+			updateUserMetadata({ metadata: { phrasePreference: "comforting" } });
+			return
 		}
-	}, [data?.user?.id, updateUserStatus, data?.user?.status]);
+	}, [data, updateUserMetadata]);
 
 	// Custom hooks for socket and OLM management
-	const { socketStatus, socketInfo } = useSocket(data?.user?.id);
+	const { socketStatus, socketInfo, disconnect, connect } = useSocket({
+		user: {
+			id: data?.user?.id,
+			status: userStatus ? {
+				status: userStatus.status,
+				isUserSet: userStatus.isUserSet,
+			} : {
+				status: "offline" as const,
+				isUserSet: false,
+			},
+		},
+		refetchUser: refetch
+	});
 	const { olmStatus, showOlmModal, setShowOlmModal, handleCreateAccount } = useOlmSetup({
 		userId: data?.user?.id,
 		hasServerOlm,
@@ -140,9 +166,8 @@ export default function Home() {
 	}
 
 	if (error || !data) {
-		return redirect(`/auth${error ? `?error=${error.cause}` : "no-data"}`);
+		return redirect(`/auth${error ? `?error=${error.cause}` : "?error=no-data"}`);
 	}
-
 
 	const getRandomPhrase = useCallback(() => {
 		const phrases = {
@@ -161,7 +186,7 @@ export default function Home() {
 	return (
 		<>
 			<UserFloatingCard user={data.user} />
-			<AppSidebar socketStatus={socketStatus} socketInfo={socketInfo}>
+			<AppSidebar socketStatus={socketStatus} socketInfo={socketInfo} disconnectSocket={disconnect} connectSocket={connect}>
 				<div className="flex flex-col h-full">
 					{/* Header - fixed height and sticky */}
 					<div className="flex items-center min-h-10 max-h-10 border-b border-border/40 sticky top-0 z-10 bg-background">
@@ -183,24 +208,28 @@ export default function Home() {
 							}
 						</div>
 						{/* Page title/options */}
-						<div className="flex flex-row justify-start items-center gap-2 w-full">
-							<div className="flex flex-row gap-2 justify-start p-2">
-								<UsersIcon className="size-4" />
-								<span className="text-sm font-medium">Friends</span>
-							</div>
-							<span className="text-sm font-medium">•</span>
-							<div className="flex flex-row gap-2 h-full">
-								<Button variant="ghost" disabled={friendsPage === "available"} className={`h-full hover:cursor-pointer justify-start p-2 ${friendsPage === "available" ? "bg-primary text-primary-foreground" : ""}`} onClick={() => setFriendsPage("available")}>
-									Available
-								</Button>
-								<Button variant="ghost" disabled={friendsPage === "all"} className={`h-full hover:cursor-pointer justify-start p-2 ${friendsPage === "all" ? "bg-primary text-primary-foreground" : ""}`} onClick={() => setFriendsPage("all")}>
-									All Known
-								</Button>
-								<Button variant="ghost" className="h-full bg-primary text-primary-foreground hover:cursor-pointer justify-start p-2 ">
-									Add Friend
-								</Button>
-							</div>
-						</div>
+						{
+							page === "friends" ? (
+								<div className="flex flex-row justify-start items-center gap-2 w-full">
+									<div className="flex flex-row gap-2 justify-start p-2">
+										<UsersIcon className="size-4" />
+										<span className="text-sm font-medium">Friends</span>
+									</div>
+									<span className="text-sm font-medium">•</span>
+									<div className="flex flex-row gap-2 h-full">
+										<Button variant="ghost" disabled={friendsPage === "available"} className={`h-full hover:cursor-pointer justify-start p-2 ${friendsPage === "available" ? "bg-primary text-primary-foreground" : ""}`} onClick={() => setFriendsPage("available")}>
+											Available
+										</Button>
+										<Button variant="ghost" disabled={friendsPage === "all"} className={`h-full hover:cursor-pointer justify-start p-2 ${friendsPage === "all" ? "bg-primary text-primary-foreground" : ""}`} onClick={() => setFriendsPage("all")}>
+											All Known
+										</Button>
+										<Button variant="ghost" className="h-full bg-primary text-primary-foreground hover:cursor-pointer justify-start p-2" onClick={() => setFriendModal(true)}>
+											Add Friend
+										</Button>
+									</div>
+								</div>
+							) : null
+						}
 					</div>
 					{/* Content Area - Channel List + Main Content */}
 					<div className="flex flex-1 overflow-hidden">
@@ -212,6 +241,10 @@ export default function Home() {
 									<Button variant="ghost" className="w-full h-full hover:cursor-pointer justify-start" onClick={() => setPage("friends")}>
 										<UsersIcon className="size-4" />
 										<span className="text-sm font-medium">Friends</span>
+									</Button>
+									<Button variant="ghost" className="w-full h-full hover:cursor-pointer justify-start" onClick={() => setPage("support")}>
+										<SettingsIcon className="size-4" />
+										<span className="text-sm font-medium">Settings</span>
 									</Button>
 								</div>
 							</div>
@@ -269,19 +302,42 @@ export default function Home() {
 											/>
 											{
 												friendsPage === "all" ? (
-													<div className="flex items-center min-h-10 max-h-10">
-														<span className="text-sm font-medium">All Friends</span>
+													<div className="flex flex-col items-start w-full p-2 gap-2 pt-4">
+														<span className="text-sm text-start font-medium">All Friends • {friends ? friends.length : 0}</span>
+														{
+															friends && friends.length > 0 ? (
+																friends.map((friend: Friend) => {
+																	if (!friend) return null;
+
+																	return (
+																		<div key={friend._id} className="flex items-center min-h-10 max-h-10">
+																			<span className="text-sm font-medium">{friend.displayUsername || friend.username || friend.name}</span>
+																		</div>
+																	)
+																})
+															) : (
+																<span className="text-sm font-medium text-muted-foreground">
+																	{getRandomPhrase()}
+																</span>
+															)
+														}
 													</div>
 												) : (
 													<div className="flex flex-col items-start w-full p-2 gap-2 pt-4">
-														<span className="text-sm text-start font-medium">Available Friends • {data.user.friends && data.user.friends.length > 0 ? data.user.friends.length : 0}</span>
+														<span className="text-sm text-start font-medium">Available Friends • {friends ? friends.filter((f: Friend) => f && f.status?.status !== "offline").length : 0}</span>
 														{
-															data.user.friends && data.user.friends.length > 0 ? (
-																data.user.friends.map((friend) => (
-																	<div className="flex items-center min-h-10 max-h-10">
-																		<span className="text-sm font-medium">{friend}</span>
-																	</div>
-																))
+															friends && friends.length > 0 ? (
+																friends
+																	.filter((f: Friend) => f && f.status?.status !== "offline")
+																	.map((friend: Friend) => {
+																		if (!friend) return null;
+
+																		return (
+																			<div key={friend._id} className="flex items-center min-h-10 max-h-10">
+																				<span className="text-sm font-medium">{friend.displayUsername || friend.username || friend.name}</span>
+																			</div>
+																		)
+																	})
 															) : (
 																<span className="text-sm font-medium text-muted-foreground">
 																	{getRandomPhrase()}
@@ -293,7 +349,7 @@ export default function Home() {
 											}
 										</div>
 									</div>
-								) : page === "settings" ? (
+								) : page === "support" ? (
 									<div className="flex flex-col flex-1 overflow-y-auto p-4">
 										<div className="flex items-center min-h-10 max-h-10">
 											<span className="text-sm font-medium">Servers</span>
@@ -306,6 +362,10 @@ export default function Home() {
 				</div>
 			</AppSidebar>
 
+			<FriendRequestModal
+				open={friendModal}
+				onOpenChange={setFriendModal}
+			/>
 			{/* OLM Account Setup/Sync Modal */}
 			<OlmSetupDialog
 				open={showOlmModal}

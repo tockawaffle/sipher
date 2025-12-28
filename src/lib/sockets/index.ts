@@ -2,6 +2,7 @@
  * @fileoverview Socket Manager Class for handling socket connections and events at the server side.
  */
 
+import { Session, User } from "better-auth";
 import { existsSync, readdirSync } from "fs";
 import type { Server as HTTPServer } from "http";
 import path from "path";
@@ -41,7 +42,11 @@ export default class SocketManager {
 		};
 
 		if (!this.socketIo) {
-			this.socketIo = new SocketIOServer(nextServer)
+			this.socketIo = new SocketIOServer(nextServer, {
+				// Configure Socket.IO's built-in heartbeat mechanism
+				pingInterval: 25000,  // Server sends ping every 25 seconds
+				pingTimeout: 60000,   // Close connection if no pong received within 60 seconds
+			});
 		}
 
 		if (this.options.requireAuth) {
@@ -54,7 +59,7 @@ export default class SocketManager {
 
 		this.socketIo.use(async (socket, next) => {
 			try {
-				let result: { user?: unknown; session?: unknown } | null = null;
+				let result: { user?: User, session?: Session } | null = null;
 
 				if (this.options.authMethod === "ott") {
 					// OTT-based auth: client must provide token in auth object
@@ -94,14 +99,15 @@ export default class SocketManager {
 					return next(new Error("Authentication error: Invalid session"));
 				}
 
-				const user = result.user as { id: string; email: string; name?: string };
+				const { user, session } = result;
 
 				// Set socket.id to user ID for persistent identification
-				(socket as any).id = user.id;
+				// @ts-expect-error: This should be a readonly property, but IDGAF, if it breaks, it breaks :D
+				socket.id = user.id;
 
 				// Attach user and session to socket for use in event handlers
-				(socket as any).user = user;
-				(socket as any).session = result.session;
+				socket.user = user;
+				socket.session = session;
 
 				next();
 			} catch (error) {

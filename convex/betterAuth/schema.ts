@@ -4,33 +4,43 @@
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { user } from "./schemas/user";
+
+const Attachment = v.object({
+	contentType: v.string(), // MIME type
+	description: v.union(v.null(), v.string()), // Description
+	ephemeral: v.boolean(), // Whether the attachment is ephemeral
+	height: v.optional(v.number()), // Height in pixels
+	width: v.optional(v.number()), // Width in pixels
+	id: v.id("storage"), // Storage ID
+	size: v.number(), // Size in bytes
+	spoiler: v.boolean(), // Whether the attachment is a spoiler
+	url: v.string(), // Public URL
+});
+
+const Message = v.object({
+	inGuild: v.optional(v.boolean()),
+	attachments: v.optional(v.array(v.id("attachments"))),
+	authorId: v.id("user"),
+	channelId: v.id("channel"),
+	content: v.string(),
+	createdAt: v.string(),
+	createdTimestamp: v.number(),
+	editedAt: v.optional(v.string()),
+	guildId: v.optional(v.id("guild")),
+	id: v.string(),
+	nonce: v.optional(v.string()),
+	position: v.optional(v.number()),
+	referencedMessage: v.optional(
+		v.union(v.null(), v.id("messages"), v.id("channel"), v.id("guild")),
+	),
+	url: v.optional(v.string()),
+})
 
 export const tables = {
-	user: defineTable({
-		name: v.string(),
-		email: v.string(),
-		emailVerified: v.boolean(),
-		image: v.optional(v.union(v.null(), v.string())),
-		createdAt: v.number(),
-		updatedAt: v.number(),
-		userId: v.optional(v.union(v.null(), v.string())),
-		username: v.optional(v.union(v.null(), v.string())),
-		displayUsername: v.optional(v.union(v.null(), v.string())),
-		metadata: v.optional(v.object({
-			phrasePreference: v.union(v.literal("comforting"), v.literal("mocking"), v.literal("both")),
-		})),
-		status: v.optional(v.object({
-			status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
-			isUserSet: v.boolean(),
-		})),
-		friends: v.optional(v.array(v.string())),
-	})
-		.index("email_name", ["email", "name"])
-		.index("name", ["name"])
-		.index("userId", ["userId"])
-		.index("username", ["username"])
-		.index("status", ["status"])
-		.index("friends", ["friends"]),
+	...user,
+	messages: defineTable(Message),
+	attachments: defineTable(Attachment),
 	session: defineTable({
 		expiresAt: v.number(),
 		token: v.string(),
@@ -87,7 +97,9 @@ export const tables = {
 			publicKey: v.string(),
 		})),
 	})
-		.index("userId", ["userId"]),
+		.index("userId", ["userId"])
+		.index("userId_keys", ["userId", "oneTimeKeys"])
+		.index("userId_identityKey", ["userId", "identityKey"]),
 };
 
 const schema = defineSchema(tables);

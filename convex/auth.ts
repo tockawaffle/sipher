@@ -3,7 +3,6 @@ import { convex } from "@convex-dev/better-auth/plugins";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { captcha, oneTimeToken, openAPI, username } from "better-auth/plugins";
 import { v } from "convex/values";
-import { z } from "zod";
 import { components } from "./_generated/api";
 import { DataModel } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
@@ -23,15 +22,6 @@ export const authComponent = createClient<DataModel, typeof authSchema>(
 	}
 );
 
-const metadataSchema = z.object({
-	phrasePreference: z.enum(["comforting", "mocking", "both"]),
-})
-
-const statusSchema = z.object({
-	status: z.enum(["online", "busy", "offline", "away"]),
-	isUserSet: z.boolean(),
-});
-
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 	return {
 		baseURL: siteUrl,
@@ -45,45 +35,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 			additionalFields: {
 				metadata: {
 					type: "json",
-					defaultValue: () => {
-						const metadata = metadataSchema.parse({
-							phrasePreference: "comforting",
-						})
-
-						return metadata.phrasePreference;
-					},
 					required: false,
 				},
 				friends: {
 					type: "string[]",
-					defaultValue: [],
 					required: false,
 					index: true
-				},
-				status: {
-					type: "json",
-					defaultValue: () => {
-						return {
-							status: "offline",
-							isUserSet: false,
-						}
-					},
-					required: false,
-					index: true,
-					transform: {
-						input: (status) => {
-							return statusSchema.safeParse(status).success ? status : {
-								status: "offline",
-								isUserSet: false,
-							};
-						},
-						output: (status) => {
-							return statusSchema.safeParse(status).success ? status : {
-								status: "offline",
-								isUserSet: false,
-							};
-						}
-					}
 				}
 			},
 		},
@@ -103,7 +60,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 				}
 			}),
 			oneTimeToken(),
-			openAPI()
+			openAPI(),
 		],
 	} satisfies BetterAuthOptions;
 }
@@ -159,7 +116,7 @@ export const retrieveServerOlmAccount = query({
 
 export const updateUserStatus = mutation({
 	args: {
-		status: v.string(),
+		status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
 		isUserSet: v.boolean(),
 	},
 	handler: async (ctx, args) => {
@@ -167,5 +124,63 @@ export const updateUserStatus = mutation({
 			status: args.status,
 			isUserSet: args.isUserSet,
 		});
+	},
+});
+
+export const updateUserMetadata = mutation({
+	args: {
+		metadata: v.object({
+			phrasePreference: v.union(v.literal("comforting"), v.literal("mocking"), v.literal("both")),
+		}),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.user.index.updateUserMetadata, {
+			metadata: args.metadata,
+		});
+	},
+});
+
+export const sendFriendRequest = mutation({
+	args: {
+		username: v.string(),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.user.index.sendFriendRequest, {
+			username: args.username,
+		});
+	},
+});
+
+export const answerFriendRequest = mutation({
+	args: {
+		requestId: v.string(),
+		answer: v.union(v.literal("accept"), v.literal("decline"), v.literal("ignore")),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.user.index.answerFriendRequest, {
+			requestId: args.requestId,
+			answer: args.answer,
+		});
+	},
+});
+
+export const getFriendRequests = query({
+	args: {},
+	handler: async (ctx) => {
+		return ctx.runQuery(components.betterAuth.user.index.getFriendRequests)
+	},
+});
+
+export const getFriends = query({
+	args: {},
+	handler: async (ctx) => {
+		return ctx.runQuery(components.betterAuth.user.index.getFriends)
+	},
+});
+
+export const getUserStatus = query({
+	args: {},
+	handler: async (ctx) => {
+		return ctx.runQuery(components.betterAuth.user.index.getUserStatus)
 	},
 });

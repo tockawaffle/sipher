@@ -26,7 +26,7 @@ interface DmMessage {
 
 const dmEvent: SiPher.EventsType = {
 	name: "dm",
-	description: "Send a direct message to another user",
+	description: "Send a direct message to another user using the client-side encryption",
 	category: "user",
 	type: "message",
 	handler: (socket: Socket, io: SocketIOServer, data: DmMessage) => {

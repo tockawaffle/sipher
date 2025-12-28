@@ -1,3 +1,4 @@
+import { Session, User } from "better-auth";
 import { Socket, Server as SocketIOServer } from "socket.io";
 
 declare global {
@@ -111,16 +112,18 @@ declare global {
 			id: string,
 			system: System
 		}
+	}
 
-		type MessageEvent = {
-			message: {
-				/** Will either be a raw string or a encrypted blob, if it is a encrypted blob, the iv will be provided */
-				content: string,
-				iv?: string
-			},
-			from: SipherUser,
-			recipient: MessageRecipient
-		}
+	// Add custom socket.io types
+}
+
+// Extend Socket.io types to include authenticated user data
+declare module "socket.io" {
+	interface Socket {
+		/** Authenticated user from Better Auth (set after auth middleware) */
+		user?: User;
+		/** Session data from Better Auth (set after auth middleware) */
+		session?: Session;
 	}
 }
 

@@ -2,8 +2,9 @@
 
 import { cn } from "@/lib/utils";
 import { BroadcastIcon as Broadcast } from "@phosphor-icons/react";
-import { Activity, Clock, Globe, Radio, Zap } from "lucide-react";
+import { Activity, Clock, Globe, LogInIcon, LogOutIcon, Radio, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 function formatUptime(ms: number): string {
@@ -19,7 +20,7 @@ function formatUptime(ms: number): string {
 /**
  * Connection status indicator with popover details
  */
-export default function ConnectionStatusIndicator({ socketStatus, socketInfo }: { socketStatus: SiPher.SocketStatus; socketInfo: SiPher.SocketInfo }) {
+export default function ConnectionStatusIndicator({ socketStatus, socketInfo, disconnectSocket, connectSocket }: { socketStatus: SiPher.SocketStatus; socketInfo: SiPher.SocketInfo; disconnectSocket: () => void; connectSocket: () => void }) {
 	const [uptime, setUptime] = useState<string>("0s");
 	const [isOpen, setIsOpen] = useState(false);
 
@@ -188,10 +189,21 @@ export default function ConnectionStatusIndicator({ socketStatus, socketInfo }: 
 				</div>
 
 				{/* Footer hint */}
-				<div className="px-4 py-2 border-t border-border bg-muted/30">
+				<div className="flex flex-row items-center justify-between gap-2 px-4 py-2 border-t border-border bg-muted/30">
 					<p className="text-[10px] text-muted-foreground text-center">
 						Real-time connection via Socket.IO
 					</p>
+					<Button variant="ghost" size="icon-sm" className="hover:cursor-pointer hover:bg-transparent!" onClick={() => {
+						socketStatus === "connected" ? disconnectSocket() : connectSocket();
+					}}>
+						{
+							socketStatus === "connected" ? (
+								<LogOutIcon className="size-4" />
+							) : (
+								<LogInIcon className="size-4" />
+							)
+						}
+					</Button>
 				</div>
 			</PopoverContent>
 		</Popover>

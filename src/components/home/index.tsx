@@ -32,7 +32,7 @@ const SidebarItems: SiPher.SidebarItem[] = [
  * It also is the controller for everything on the app, including going to other pages, showing conversations and other.
  * @param children - The children to be rendered in the sidebar inset
  */
-export default function AppSidebar({ children, socketStatus, socketInfo, currentChannel }: SiPher.AppSidebarProps) {
+export default function AppSidebar({ children, socketStatus, socketInfo, currentChannel, disconnectSocket, connectSocket }: SiPher.AppSidebarProps) {
 	const [activeItem, setActiveItem] = useState<string>("home");
 
 	return (
@@ -120,7 +120,7 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 							}
 						</div>
 						{/* Socket connection status */}
-						<ConnectionStatusIndicator socketStatus={socketStatus} socketInfo={socketInfo} />
+						<ConnectionStatusIndicator socketStatus={socketStatus} socketInfo={socketInfo} disconnectSocket={disconnectSocket} connectSocket={connectSocket} />
 					</div>
 					<div className="w-9 md:hidden" /> {/* Spacer for centering on mobile */}
 				</header>

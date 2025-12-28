@@ -62,21 +62,76 @@ export declare const components: {
                   displayUsername?: null | string;
                   email: string;
                   emailVerified: boolean;
-                  friends?: Array<string>;
                   image?: null | string;
                   metadata?: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name: string;
-                  status?: {
-                    isUserSet: boolean;
-                    status: "online" | "busy" | "offline" | "away";
-                  };
                   updatedAt: number;
                   userId?: null | string;
                   username?: null | string;
                 };
                 model: "user";
+              }
+            | {
+                data: {
+                  isUserSet: boolean;
+                  status: "online" | "busy" | "offline" | "away";
+                  updatedAt: number;
+                  userId: string;
+                };
+                model: "userStatus";
+              }
+            | {
+                data: {
+                  acceptedAt?: number;
+                  createdAt: number;
+                  declinedAt?: number;
+                  expiresAt?: number;
+                  ignoredAt?: number;
+                  method: "receive" | "send";
+                  requestId: string;
+                  requestTo: string;
+                  userId: string;
+                };
+                model: "friendRequests";
+              }
+            | {
+                data: { createdAt: number; friendId: string; userId: string };
+                model: "friends";
+              }
+            | {
+                data: {
+                  attachments?: Array<string>;
+                  authorId: string;
+                  channelId: string;
+                  content: string;
+                  createdAt: string;
+                  createdTimestamp: number;
+                  editedAt?: string;
+                  guildId?: string;
+                  id: string;
+                  inGuild?: boolean;
+                  nonce?: string;
+                  position?: number;
+                  referencedMessage?: null | string | string | string;
+                  url?: string;
+                };
+                model: "messages";
+              }
+            | {
+                data: {
+                  contentType: string;
+                  description: null | string;
+                  ephemeral: boolean;
+                  height?: number;
+                  id: string;
+                  size: number;
+                  spoiler: boolean;
+                  url: string;
+                  width?: number;
+                };
+                model: "attachments";
               }
             | {
                 data: {
@@ -158,8 +213,176 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "userStatus";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
                     | "status"
-                    | "friends"
+                    | "isUserSet"
+                    | "updatedAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friendRequests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
+                    | "requestTo"
+                    | "method"
+                    | "requestId"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "acceptedAt"
+                    | "declinedAt"
+                    | "ignoredAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friends";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "messages";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "inGuild"
+                    | "attachments"
+                    | "authorId"
+                    | "channelId"
+                    | "content"
+                    | "createdAt"
+                    | "createdTimestamp"
+                    | "editedAt"
+                    | "guildId"
+                    | "id"
+                    | "nonce"
+                    | "position"
+                    | "referencedMessage"
+                    | "url"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "attachments";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "contentType"
+                    | "description"
+                    | "ephemeral"
+                    | "height"
+                    | "width"
+                    | "id"
+                    | "size"
+                    | "spoiler"
+                    | "url"
                     | "_id";
                   operator?:
                     | "lt"
@@ -371,8 +594,176 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "userStatus";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
                     | "status"
-                    | "friends"
+                    | "isUserSet"
+                    | "updatedAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friendRequests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
+                    | "requestTo"
+                    | "method"
+                    | "requestId"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "acceptedAt"
+                    | "declinedAt"
+                    | "ignoredAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friends";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "messages";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "inGuild"
+                    | "attachments"
+                    | "authorId"
+                    | "channelId"
+                    | "content"
+                    | "createdAt"
+                    | "createdTimestamp"
+                    | "editedAt"
+                    | "guildId"
+                    | "id"
+                    | "nonce"
+                    | "position"
+                    | "referencedMessage"
+                    | "url"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "attachments";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "contentType"
+                    | "description"
+                    | "ephemeral"
+                    | "height"
+                    | "width"
+                    | "id"
+                    | "size"
+                    | "spoiler"
+                    | "url"
                     | "_id";
                   operator?:
                     | "lt"
@@ -563,6 +954,11 @@ export declare const components: {
           limit?: number;
           model:
             | "user"
+            | "userStatus"
+            | "friendRequests"
+            | "friends"
+            | "messages"
+            | "attachments"
             | "session"
             | "account"
             | "verification"
@@ -610,6 +1006,11 @@ export declare const components: {
         {
           model:
             | "user"
+            | "userStatus"
+            | "friendRequests"
+            | "friends"
+            | "messages"
+            | "attachments"
             | "session"
             | "account"
             | "verification"
@@ -654,16 +1055,11 @@ export declare const components: {
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
-                  friends?: Array<string>;
                   image?: null | string;
                   metadata?: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
-                  status?: {
-                    isUserSet: boolean;
-                    status: "online" | "busy" | "offline" | "away";
-                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -681,8 +1077,225 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "userStatus";
+                update: {
+                  isUserSet?: boolean;
+                  status?: "online" | "busy" | "offline" | "away";
+                  updatedAt?: number;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
                     | "status"
-                    | "friends"
+                    | "isUserSet"
+                    | "updatedAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friendRequests";
+                update: {
+                  acceptedAt?: number;
+                  createdAt?: number;
+                  declinedAt?: number;
+                  expiresAt?: number;
+                  ignoredAt?: number;
+                  method?: "receive" | "send";
+                  requestId?: string;
+                  requestTo?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
+                    | "requestTo"
+                    | "method"
+                    | "requestId"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "acceptedAt"
+                    | "declinedAt"
+                    | "ignoredAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friends";
+                update: {
+                  createdAt?: number;
+                  friendId?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "messages";
+                update: {
+                  attachments?: Array<string>;
+                  authorId?: string;
+                  channelId?: string;
+                  content?: string;
+                  createdAt?: string;
+                  createdTimestamp?: number;
+                  editedAt?: string;
+                  guildId?: string;
+                  id?: string;
+                  inGuild?: boolean;
+                  nonce?: string;
+                  position?: number;
+                  referencedMessage?: null | string | string | string;
+                  url?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "inGuild"
+                    | "attachments"
+                    | "authorId"
+                    | "channelId"
+                    | "content"
+                    | "createdAt"
+                    | "createdTimestamp"
+                    | "editedAt"
+                    | "guildId"
+                    | "id"
+                    | "nonce"
+                    | "position"
+                    | "referencedMessage"
+                    | "url"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "attachments";
+                update: {
+                  contentType?: string;
+                  description?: null | string;
+                  ephemeral?: boolean;
+                  height?: number;
+                  id?: string;
+                  size?: number;
+                  spoiler?: boolean;
+                  url?: string;
+                  width?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "contentType"
+                    | "description"
+                    | "ephemeral"
+                    | "height"
+                    | "width"
+                    | "id"
+                    | "size"
+                    | "spoiler"
+                    | "url"
                     | "_id";
                   operator?:
                     | "lt"
@@ -926,16 +1539,11 @@ export declare const components: {
                   displayUsername?: null | string;
                   email?: string;
                   emailVerified?: boolean;
-                  friends?: Array<string>;
                   image?: null | string;
                   metadata?: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
-                  status?: {
-                    isUserSet: boolean;
-                    status: "online" | "busy" | "offline" | "away";
-                  };
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -953,8 +1561,225 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "userStatus";
+                update: {
+                  isUserSet?: boolean;
+                  status?: "online" | "busy" | "offline" | "away";
+                  updatedAt?: number;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
                     | "status"
-                    | "friends"
+                    | "isUserSet"
+                    | "updatedAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friendRequests";
+                update: {
+                  acceptedAt?: number;
+                  createdAt?: number;
+                  declinedAt?: number;
+                  expiresAt?: number;
+                  ignoredAt?: number;
+                  method?: "receive" | "send";
+                  requestId?: string;
+                  requestTo?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "userId"
+                    | "requestTo"
+                    | "method"
+                    | "requestId"
+                    | "createdAt"
+                    | "expiresAt"
+                    | "acceptedAt"
+                    | "declinedAt"
+                    | "ignoredAt"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "friends";
+                update: {
+                  createdAt?: number;
+                  friendId?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "messages";
+                update: {
+                  attachments?: Array<string>;
+                  authorId?: string;
+                  channelId?: string;
+                  content?: string;
+                  createdAt?: string;
+                  createdTimestamp?: number;
+                  editedAt?: string;
+                  guildId?: string;
+                  id?: string;
+                  inGuild?: boolean;
+                  nonce?: string;
+                  position?: number;
+                  referencedMessage?: null | string | string | string;
+                  url?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "inGuild"
+                    | "attachments"
+                    | "authorId"
+                    | "channelId"
+                    | "content"
+                    | "createdAt"
+                    | "createdTimestamp"
+                    | "editedAt"
+                    | "guildId"
+                    | "id"
+                    | "nonce"
+                    | "position"
+                    | "referencedMessage"
+                    | "url"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "attachments";
+                update: {
+                  contentType?: string;
+                  description?: null | string;
+                  ephemeral?: boolean;
+                  height?: number;
+                  id?: string;
+                  size?: number;
+                  spoiler?: boolean;
+                  url?: string;
+                  width?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "contentType"
+                    | "description"
+                    | "ephemeral"
+                    | "height"
+                    | "width"
+                    | "id"
+                    | "size"
+                    | "spoiler"
+                    | "url"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1202,10 +2027,34 @@ export declare const components: {
     };
     user: {
       index: {
+        answerFriendRequest: FunctionReference<
+          "mutation",
+          "internal",
+          { answer: "accept" | "decline" | "ignore"; requestId: string },
+          any
+        >;
+        getFriendRequests: FunctionReference<"query", "internal", any, any>;
+        getFriends: FunctionReference<"query", "internal", any, any>;
+        getUserStatus: FunctionReference<"query", "internal", any, any>;
+        sendFriendRequest: FunctionReference<
+          "mutation",
+          "internal",
+          { username: string },
+          any
+        >;
+        updateUserMetadata: FunctionReference<
+          "mutation",
+          "internal",
+          { metadata: { phrasePreference: "comforting" | "mocking" | "both" } },
+          any
+        >;
         updateUserStatus: FunctionReference<
           "mutation",
           "internal",
-          { isUserSet: boolean; status: string },
+          {
+            isUserSet: boolean;
+            status: "online" | "busy" | "offline" | "away";
+          },
           any
         >;
       };

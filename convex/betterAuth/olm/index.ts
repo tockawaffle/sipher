@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { Id } from "../../_generated/dataModel";
-import { mutation, query } from "../../_generated/server";
+import { mutation, query } from "../_generated/server";
 
 export const sendKeysToServer = mutation({
 	args: {
@@ -16,11 +16,10 @@ export const sendKeysToServer = mutation({
 		forceInsert: v.boolean(), // if true, insert even if user already has an olm account
 	},
 	handler: async (ctx, args) => {
-		console.log("sendKeysToServer", args);
+
 		// check if user already has an olm account
-		// @ts-ignore
 		const olmAccount = await ctx.db.query("olmAccount").withIndex("userId", (q) => q.eq("userId", args.userId)).first();
-		console.log("olmAccount", olmAccount);
+
 		if (olmAccount && !args.forceInsert) {
 			throw new Error("User already has an olm account");
 		}
@@ -42,9 +41,8 @@ export const retrieveServerOlmAccount = query({
 	},
 	handler: async (ctx, args) => {
 		const olmAccount = await ctx.db.get<"olmAccount">(args.userId as Id<"olmAccount">);
-		if (olmAccount) {
-			return olmAccount;
-		}
+		if (olmAccount) return olmAccount;
+
 		return null;
 	},
 });

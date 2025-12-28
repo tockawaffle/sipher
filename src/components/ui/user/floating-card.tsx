@@ -6,7 +6,9 @@ import {
 	GearSix,
 	MicrophoneSlash
 } from "@phosphor-icons/react";
+import { useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
+import { api } from "../../../../convex/_generated/api";
 import { Avatar, AvatarFallback, AvatarImage } from "../avatar";
 import { Button } from "../button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../hover-card";
@@ -22,19 +24,21 @@ interface UserFloatingCardProps {
 
 const statusColors: Record<UserStatus, string> = {
 	online: "bg-emerald-500",
-	busy: "bg-amber-500",
+	busy: "bg-red-500",
 	away: "bg-yellow-500",
 	offline: "bg-muted-foreground"
 };
 
-export default function UserFloatingCard({
-	user,
-}: UserFloatingCardProps) {
+export default function UserFloatingCard(
+	{ user }: UserFloatingCardProps
+) {
 	const [cardOpen, setCardOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const contentRef = useRef<HTMLDivElement | null>(null);
-	const status = user.status?.status;
-	const activity = user.status?.activity;
+	const status = useQuery(api.auth.getUserStatus) as {
+		status: "online" | "busy" | "offline" | "away";
+		isUserSet: boolean;
+	} | null;
 
 	// Close when clicking outside the trigger/content
 	useEffect(() => {
@@ -113,7 +117,7 @@ export default function UserFloatingCard({
 								<span
 									className={cn(
 										"absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[3px] border-secondary",
-										status ? statusColors[status as UserStatus] : "bg-muted-foreground"
+										status ? statusColors[status.status as UserStatus] : "bg-muted-foreground"
 									)}
 								/>
 							</div>
@@ -124,19 +128,12 @@ export default function UserFloatingCard({
 										{user.name}
 									</span>
 								</div>
-								{activity ? (
-									<div className="flex items-center gap-1 text-sm text-muted-foreground truncate">
-										<span className="text-[14px] leading-none">{"\u2022"}</span>
-										<span className="inline-flex items-center gap-1 text-[13px]">
-											<span className="text-foreground/80">{activity}</span>
-										</span>
-									</div>
-								) : (
-									<div className="flex items-center gap-1 text-xs text-muted-foreground/80 truncate italic">
-										<span className="text-[14px] leading-none">{"\u2022"}</span>
-										<span>Activity status (coming soon)</span>
-									</div>
-								)}
+
+								<div className="flex items-center gap-1 text-xs text-muted-foreground/80 truncate italic">
+									<span className="text-[14px] leading-none">{"\u2022"}</span>
+									<span>Activity status (coming soon)</span>
+								</div>
+
 							</div>
 						</Button>
 					</HoverCardTrigger>
@@ -156,10 +153,8 @@ export default function UserFloatingCard({
 							</Avatar>
 							<div className="flex flex-col min-w-0">
 								<span className="text-sm font-semibold text-foreground truncate">{user.name}</span>
-								<span className="text-xs text-muted-foreground truncate capitalize">{status}</span>
-								<span className="text-xs text-muted-foreground truncate">
-									{activity ?? "Activity status (coming soon)"}
-								</span>
+								<span className="text-xs text-muted-foreground truncate capitalize">{status?.status}</span>
+
 							</div>
 						</div>
 					</HoverCardContent>

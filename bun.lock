@@ -4,6 +4,7 @@
     "": {
       "name": "sipher",
       "dependencies": {
+        "@better-fetch/fetch": "^1.1.21",
         "@convex-dev/better-auth": "^0.10.4",
         "@marsidev/react-turnstile": "^1.4.0",
         "@matrix-org/olm": "^3.2.15",

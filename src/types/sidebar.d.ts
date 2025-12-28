@@ -6,6 +6,8 @@ declare global {
 			socketStatus: SocketStatus;
 			socketInfo: SocketInfo;
 			currentChannel?: SiPher.Channel;
+			disconnectSocket: () => void;
+			connectSocket: () => void;
 		}
 
 		interface SidebarItem {
