@@ -27,13 +27,14 @@ declare global {
 			id: string,
 			name: string,
 			type: typeof ChannelType.DM | typeof ChannelType.GROUP | typeof ChannelType.REGIONAL | typeof ChannelType.GLOBAL | typeof ChannelType.SERVER | typeof ChannelType.SYSTEM
-			participants: SipherUser[]
+			participants: string[]
 			times: {
 				createdAt: number,
 				updatedAt: number,
 				lastMessageAt?: number,
 				lastMessage?: Message,
 			},
+			isOpen: boolean,
 			metadata?: {
 				description?: string,
 				subtitle?: string,

@@ -2024,6 +2024,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           Name
         >;
         getFriends: FunctionReference<"query", "internal", any, any, Name>;
+        getParticipantDetails: FunctionReference<
+          "query",
+          "internal",
+          { participantIds: Array<string> },
+          any,
+          Name
+        >;
         getUserStatus: FunctionReference<"query", "internal", any, any, Name>;
         sendFriendRequest: FunctionReference<
           "mutation",

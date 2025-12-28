@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import { getDmRoomId } from "../sockets/events/dm";
 
 // ============================================
 // Types
@@ -19,17 +20,6 @@ export interface OlmSession {
 	pickledSession: string; // Serialized Olm.Session
 	createdAt: number;
 	updatedAt: number;
-}
-
-/** DM channel */
-export interface Channel {
-	id: string; // Deterministic room ID (dm:hash)
-	participants: string[]; // User IDs in this channel
-	type: "dm" | "group";
-	name?: string; // For groups
-	createdAt: number;
-	updatedAt: number;
-	lastMessageAt?: number;
 }
 
 /** Message stored locally */
@@ -55,7 +45,7 @@ export interface UnreadCount {
 class SipherDB extends Dexie {
 	olmAccounts!: EntityTable<OlmAccount, "odId">;
 	olmSessions!: EntityTable<OlmSession, "odId">;
-	channels!: EntityTable<Channel, "id">;
+	channels!: EntityTable<SiPher.Channel, "id">;
 	messages!: EntityTable<Message, "id">;
 	unreadCounts!: EntityTable<UnreadCount, "channelId">;
 
@@ -81,21 +71,33 @@ export const db = new SipherDB();
 /** Get or create a DM channel with another user */
 export async function getOrCreateDmChannel(
 	myUserId: string,
-	otherUserId: string
-): Promise<Channel> {
+	otherUser: any
+): Promise<SiPher.Channel> {
 	// Generate deterministic channel ID
-	const sorted = [myUserId, otherUserId].sort().join(":");
-	const channelId = `dm:${await hashString(sorted)}`;
+	const channelId = getDmRoomId(myUserId, otherUser.id);
 
 	const existing = await db.channels.get(channelId);
-	if (existing) return existing;
+	if (existing) {
+		// Change the isOpen status to true
+		await db.channels.where("id").equals(channelId).modify((channel) => {
+			channel.isOpen = true;
+		});
+		return existing;
+	}
 
-	const channel: Channel = {
+	const channel: SiPher.Channel = {
 		id: channelId,
-		participants: [myUserId, otherUserId].sort(),
-		type: "dm",
-		createdAt: Date.now(),
-		updatedAt: Date.now(),
+		name: otherUser.name,
+		participants: [myUserId, otherUser.id].sort(),
+		type: "DM" as typeof SiPher.ChannelType.DM,
+		times: {
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			lastMessageAt: undefined,
+			lastMessage: undefined,
+		},
+		metadata: undefined,
+		isOpen: true,
 	};
 
 	await db.channels.add(channel);
@@ -123,9 +125,10 @@ export async function addMessage(message: Omit<Message, "id">): Promise<string> 
 	await db.messages.add({ ...message, id });
 
 	// Update channel's lastMessageAt
-	await db.channels.update(message.channelId, {
-		lastMessageAt: message.timestamp,
-		updatedAt: Date.now(),
+	await db.channels.where("id").equals(message.channelId).modify((channel) => {
+		channel.times.lastMessage = message;
+		channel.times.lastMessageAt = message.timestamp;
+		channel.times.updatedAt = Date.now();
 	});
 
 	return id;

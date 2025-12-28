@@ -17,7 +17,7 @@ declare global {
 		}
 
 		type OlmStatus = "checking" | "synced" | "mismatched" | "not_setup" | "creating";
-		type SocketStatus = "connecting" | "connected" | "error" | "disconnected";
+		type SocketStatus = "connecting" | "connected" | "error" | "disconnected" | "manually_disconnected";
 
 		interface SocketInfo {
 			ping: number | null;

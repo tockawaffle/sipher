@@ -2,21 +2,27 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { mutation, MutationCtx, query, QueryCtx } from "../_generated/server";
 
-async function userValidation(ctx: MutationCtx | QueryCtx) {
+// Overload signatures
+async function userValidation(ctx: MutationCtx | QueryCtx, options: { required: false }): Promise<{ userId: Id<"user">; user: any } | null>;
+async function userValidation(ctx: MutationCtx | QueryCtx, options?: { required?: true }): Promise<{ userId: Id<"user">; user: any }>;
+
+// Implementation
+async function userValidation(ctx: MutationCtx | QueryCtx, options?: { required?: boolean }) {
+	const required = options?.required ?? true;
+
 	const user = await ctx.auth.getUserIdentity();
 	if (!user) {
-		throw new Error("User not found");
+		if (required) throw new Error("User not found");
+		return null;
 	}
 
 	const userId = ctx.db.normalizeId("user", user.subject as string) as Id<"user">;
 	if (!userId) {
-		throw new Error("User not found");
+		if (required) throw new Error("User not found");
+		return null;
 	}
 
-	return {
-		userId,
-		user,
-	}
+	return { userId, user };
 }
 
 export const updateUserStatus = mutation({
@@ -54,7 +60,12 @@ export const updateUserStatus = mutation({
 
 export const getUserStatus = query({
 	handler: async (ctx) => {
-		const { userId } = await userValidation(ctx);
+		const validation = await userValidation(ctx, { required: false });
+		if (!validation) {
+			return null; // User not authenticated
+		}
+
+		const { userId } = validation;
 		const userStatus = await ctx.db.query("userStatus").withIndex("userId", (q) => q.eq("userId", userId)).first();
 		return userStatus;
 	}
@@ -310,11 +321,50 @@ export const getFriends = query({
 					status: friendStatus ? {
 						status: friendStatus.status,
 						isUserSet: friendStatus.isUserSet,
-					} : null,
+					} : {
+						status: "offline" as const,
+						isUserSet: false,
+					},
 				};
 			})
 		);
 
 		return friends.filter(Boolean);
+	}
+})
+
+export const getParticipantDetails = query({
+	args: {
+		participantIds: v.array(v.string()),
+	},
+	handler: async (ctx, args) => {
+		const { participantIds } = args;
+		const { userId } = await userValidation(ctx);
+		if (!userId) throw new Error("User not found");
+
+		if (participantIds.length === 0) return [];
+		const normalizedParticipantIds = participantIds.map((id) => ctx.db.normalizeId("user", id));
+		if (normalizedParticipantIds.length === 0) return [];
+
+		// Filter out all null values
+		const filteredParticipantIds = normalizedParticipantIds.filter((id) => id !== null);
+		if (filteredParticipantIds.length === 0) return [];
+
+		const participantDetails = await Promise.all(filteredParticipantIds.map(async (id) => {
+			const participant = await ctx.db.get("user", id)
+			const participantStatus = await ctx.db.query("userStatus").withIndex("userId", (q) => q.eq("userId", id)).first();
+			if (!participant) return null;
+
+			return {
+				id: participant._id,
+				name: participant.name,
+				username: participant.username,
+				displayUsername: participant.displayUsername,
+				image: participant.image,
+				status: participantStatus?.status || "offline",
+			}
+		}));
+
+		return participantDetails.filter(Boolean);
 	}
 })

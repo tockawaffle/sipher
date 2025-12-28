@@ -184,3 +184,14 @@ export const getUserStatus = query({
 		return ctx.runQuery(components.betterAuth.user.index.getUserStatus)
 	},
 });
+
+export const getParticipantDetails = query({
+	args: {
+		participantIds: v.array(v.string()),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runQuery(components.betterAuth.user.index.getParticipantDetails, {
+			participantIds: args.participantIds,
+		});
+	},
+});

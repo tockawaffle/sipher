@@ -40,7 +40,7 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 				clearInterval(pingIntervalRef.current);
 				pingIntervalRef.current = null;
 			}
-			setSocketStatus("disconnected");
+			setSocketStatus("manually_disconnected");
 		}
 	}, []);
 
@@ -54,7 +54,9 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 	useEffect(() => {
 		if (!user.id) return;
 
-		const socket: Socket = io({ withCredentials: false });
+		const socket: Socket = io({
+			withCredentials: true, reconnectionAttempts: 3, reconnectionDelay: 1000, reconnectionDelayMax: 5000
+		});
 		socketRef.current = socket;
 
 		// Measure ping latency using acknowledgment callback
@@ -145,7 +147,6 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 
 		socket.on("disconnect", (reason) => {
 			console.log("🔌 Disconnected from socket:", reason);
-			setUserDefaultStatus("offline", user.status);
 			setSocketStatus("disconnected");
 			setSocketInfo((prev: SiPher.SocketInfo) => ({
 				...prev,
@@ -159,9 +160,26 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 			}
 		});
 
-		// Handle pong response for ping measurement
-		socket.on("pong", () => {
-			// Handled in measurePing callback
+		socket.on("reconnect_attempt", (attempt) => {
+			console.log("🔌 Reconnect attempt:", attempt);
+			setSocketStatus("connecting");
+			setSocketInfo((prev: SiPher.SocketInfo) => ({
+				...prev,
+				ping: null,
+				connectedAt: null,
+				error: null
+			}));
+		});
+
+		socket.on("reconnect_error", (error) => {
+			console.error("❌ Reconnect error:", error);
+			setSocketStatus("error");
+			setSocketInfo((prev: SiPher.SocketInfo) => ({
+				...prev,
+				ping: null,
+				connectedAt: null,
+				error: error.message
+			}));
 		});
 
 		return () => {

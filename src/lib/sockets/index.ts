@@ -3,12 +3,14 @@
  */
 
 import { Session, User } from "better-auth";
+import { ConvexHttpClient } from "convex/browser";
 import { existsSync, readdirSync } from "fs";
 import type { Server as HTTPServer } from "http";
 import path from "path";
 import { Socket, Server as SocketIOServer } from "socket.io";
 import { pathToFileURL } from "url";
 import z from "zod";
+import { api } from "../../../convex/_generated/api";
 
 interface SocketManagerOptions {
 	/** Enable authentication via Better Auth (default: false) */
@@ -28,6 +30,7 @@ export default class SocketManager {
 	private socketIo: SocketIOServer | null = null;
 	private events: Map<string, SiPher.EventsType[]> = new Map();
 	private options: SocketManagerOptions;
+	private convex: ConvexHttpClient;
 
 	constructor(nextServer: HTTPServer, options: SocketManagerOptions = {}) {
 		if (!nextServer) {
@@ -40,6 +43,12 @@ export default class SocketManager {
 			authMethod: "session",
 			...options
 		};
+
+		// Initialize Convex client for server-side mutations
+		if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+			throw new Error("NEXT_PUBLIC_CONVEX_URL is required for SocketManager");
+		}
+		this.convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL);
 
 		if (!this.socketIo) {
 			this.socketIo = new SocketIOServer(nextServer, {
@@ -194,7 +203,7 @@ export default class SocketManager {
 
 		// Register all events with Socket.IO
 		socketIo.on("connection", (socket) => {
-			const user = (socket as any).user;
+			const user = socket.user;
 			console.log(`[SocketManager] Client connected: ${socket.id}${user ? ` (${user.email})` : ""}`);
 
 			// Register all event handlers by name
@@ -211,8 +220,28 @@ export default class SocketManager {
 			}
 
 			// Handle disconnect within the connection context
-			socket.on("disconnect", (reason) => {
-				console.log(`[SocketManager] Client disconnected: ${socket.id} (${reason})`);
+			socket.on("disconnect", async (reason) => {
+				try {
+					const cookies = socket.handshake.headers.cookie;
+					if (!cookies || !cookies.includes("better-auth.convex_jwt")) return;
+					const session = cookies.split("better-auth.convex_jwt=")[1].split(";")[0];
+
+					if (!session) {
+						console.warn(`[SocketManager] No session found for user ${socket.id}, skipping status update`);
+						return;
+					}
+
+					// Set auth token for this mutation
+					this.convex.setAuth(session);
+
+					await this.convex.mutation(api.auth.updateUserStatus, {
+						status: "offline",
+						isUserSet: false,
+					});
+					console.log(`[SocketManager] Set user ${socket.id} status to offline`);
+				} catch (error) {
+					console.error(`[SocketManager] Failed to set user status to offline:`, error);
+				}
 			});
 		})
 	}

@@ -2035,6 +2035,12 @@ export declare const components: {
         >;
         getFriendRequests: FunctionReference<"query", "internal", any, any>;
         getFriends: FunctionReference<"query", "internal", any, any>;
+        getParticipantDetails: FunctionReference<
+          "query",
+          "internal",
+          { participantIds: Array<string> },
+          any
+        >;
         getUserStatus: FunctionReference<"query", "internal", any, any>;
         sendFriendRequest: FunctionReference<
           "mutation",
