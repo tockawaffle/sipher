@@ -951,6 +951,7 @@ export declare const components: {
         "query",
         "internal",
         {
+          join?: any;
           limit?: number;
           model:
             | "user"
@@ -1004,6 +1005,7 @@ export declare const components: {
         "query",
         "internal",
         {
+          join?: any;
           model:
             | "user"
             | "userStatus"
@@ -2006,6 +2008,12 @@ export declare const components: {
     };
     olm: {
       index: {
+        consumeOTK: FunctionReference<
+          "mutation",
+          "internal",
+          { keyId: string; userId: string },
+          any
+        >;
         retrieveServerOlmAccount: FunctionReference<
           "query",
           "internal",

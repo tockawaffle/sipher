@@ -7,7 +7,9 @@ import { useLiveQuery } from "dexie-react-hooks"
 import * as React from "react"
 import { useEffect, useMemo } from "react"
 import { api } from "../../../../convex/_generated/api"
+import DMChannelContent from "../dm/DmChannelContent"
 import { FriendsPage } from "../friends/friends-page"
+import { Spinner } from "../spinner"
 import { ChannelList } from "./channel-list"
 import { PageHeader } from "./page-header"
 import { SettingsPage } from "./settings-page"
@@ -44,12 +46,13 @@ export function MainContentLayout({
 		[userId]
 	) ?? []
 
-	const getParticipantDetails = useQuery(api.auth.getParticipantDetails, dmChannelId ? {
-		participantIds: openDmChannels
-			.find((channel) => channel.id === dmChannelId)
-			?.participants
-			.filter((participant) => participant !== userId) ?? []
-	} : "skip")
+	const participantIds = openDmChannels
+		.find((channel) => channel.id === dmChannelId)
+		?.participants ?? []
+
+	const getParticipantDetails: SiPher.ParticipantDetail[] | undefined = useQuery(api.auth.getParticipantDetails,
+		{ participantIds }
+	)
 
 	// Combine channel from local DB with participant details from Convex
 	const dmChannel = useMemo(() => {
@@ -60,7 +63,14 @@ export function MainContentLayout({
 
 		return {
 			id: channel.id,
-			participantDetails: getParticipantDetails ?? []
+			participantDetails: getParticipantDetails.map((participant) => ({
+				id: participant.id as string,
+				name: participant.name,
+				username: participant.username ?? "",
+				displayUsername: participant.displayUsername ?? "",
+				image: participant.image ?? "",
+				status: participant.status,
+			}))
 		}
 	}, [openDmChannels, dmChannelId, getParticipantDetails])
 
@@ -104,12 +114,21 @@ export function MainContentLayout({
 
 					{/* Main Content */}
 					<div className="flex flex-col flex-1 overflow-hidden">
-						{page === "dm" ? (
-							<div className="flex flex-col h-full p-4">
-								<p className="text-sm text-muted-foreground">DM chat with {dmChannelId}</p>
-							</div>
-						) : page === "server" ? (
-							<div className="flex flex-col h-full p-4">
+						{page === "dm" && dmChannelId ? (
+							getParticipantDetails ? (
+								<div className="flex flex-1 min-h-0">
+									<DMChannelContent userId={userId} channelId={dmChannelId!} participantDetails={getParticipantDetails} />
+								</div>
+							) : (
+								<div className="flex flex-1 min-h-0">
+									<div className="flex items-center justify-center flex-1">
+										<Spinner className="size-4 animate-spin" />
+										<p className="text-sm text-muted-foreground">Loading...</p>
+									</div>
+								</div>
+							)
+						) : page === "server" && serverChannelId ? (
+							<div className="p-4">
 								<p className="text-sm text-muted-foreground">Server channel {serverChannelId}</p>
 							</div>
 						) : page === "friends" ? (
@@ -133,4 +152,3 @@ export function MainContentLayout({
 		</>
 	)
 }
-

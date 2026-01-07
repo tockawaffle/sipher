@@ -353,6 +353,7 @@ export const getParticipantDetails = query({
 		const participantDetails = await Promise.all(filteredParticipantIds.map(async (id) => {
 			const participant = await ctx.db.get("user", id)
 			const participantStatus = await ctx.db.query("userStatus").withIndex("userId", (q) => q.eq("userId", id)).first();
+			const participantOlmAccount = await ctx.db.query("olmAccount").withIndex("userId", (q) => q.eq("userId", id)).first();
 			if (!participant) return null;
 
 			return {
@@ -362,9 +363,10 @@ export const getParticipantDetails = query({
 				displayUsername: participant.displayUsername,
 				image: participant.image,
 				status: participantStatus?.status || "offline",
+				olmAccount: participantOlmAccount,
 			}
 		}));
 
-		return participantDetails.filter(Boolean);
+		return participantDetails
 	}
 })

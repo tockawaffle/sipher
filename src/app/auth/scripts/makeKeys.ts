@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 
 // Load OLM via script tag to bypass bundler entirely
-async function loadOlm() {
+export async function loadOlm() {
 	if (typeof window === "undefined") throw new Error("OLM requires browser");
 	if ((window as any).Olm) return (window as any).Olm;
 
@@ -64,6 +64,19 @@ export default async function makeKeysOnSignUp(
 
 	const pickledAccount = account.pickle(localPassword);
 
+	// Store password in sessionStorage for unpickling later
+	sessionStorage.setItem(`olm_password_${odId}`, localPassword);
+
+	// Cache the account in window
+	if (!(window as any).olmAccountCache) {
+		(window as any).olmAccountCache = {};
+	}
+	(window as any).olmAccountCache[odId] = account;
+
+	// Set the OLM session into the window object
+	(window as any).olmSession = new Olm.Session();
+
+	// Store the olm account on DB
 	await db.olmAccounts.put({
 		odId,
 		pickledAccount,

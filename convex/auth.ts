@@ -195,3 +195,16 @@ export const getParticipantDetails = query({
 		});
 	},
 });
+
+export const consumeOTK = mutation({
+	args: {
+		userId: v.string(),
+		keyId: v.string(),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.olm.index.consumeOTK, {
+			userId: args.userId,
+			keyId: args.keyId,
+		});
+	},
+});

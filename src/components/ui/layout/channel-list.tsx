@@ -1,12 +1,12 @@
 "use client"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { db } from "@/lib/db"
-import { cn } from "@/lib/utils"
+import { clearUnread, db } from "@/lib/db"
 import { formatDistanceToNow } from "date-fns"
+import { useLiveQuery } from "dexie-react-hooks"
 import { PlusIcon, SettingsIcon, UsersIcon, XIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
+import UserCard from "../user/user-card"
 
 export interface ChannelListProps {
 	currentChannel: SiPher.Channel | null
@@ -36,6 +36,11 @@ export function ChannelList({
 	dmChannel,
 }: ChannelListProps) {
 	const router = useRouter()
+
+	const unreadCount = useLiveQuery(
+		() => db.unreadCounts.toArray(),
+		[]
+	)
 
 	return (
 		<div className="flex flex-col shrink-0 max-w-72 min-w-72 border-r border-border/40">
@@ -87,6 +92,7 @@ export function ChannelList({
 								const isActive = dmChannel?.id === channel.id
 								const lastMessage = channel.times?.lastMessage
 								const lastMessageTime = channel.times?.lastMessageAt
+								const channelUnreadCount = unreadCount?.find((unread) => unread.channelId === channel.id)?.count ?? 0
 								if (!channel.isOpen) return null;
 
 								return (
@@ -96,22 +102,23 @@ export function ChannelList({
 											? "bg-accent/60"
 											: "hover:bg-accent/40"
 											}`}
-										onClick={() => router.push(`/channels/me/${channel.id}`)}
+										onClick={() => {
+											clearUnread(channel.id)
+											console.log("Cleared unread count for channel", channel.id)
+											router.push(`/channels/me/${channel.id}`)
+										}}
 									>
-										{/* Avatar */}
 										<div className="relative shrink-0">
-											<Avatar className="size-8 ring-2 ring-border">
-												<AvatarImage src={channel.metadata?.icon ?? undefined} alt={channel.name} />
-												<AvatarFallback className="bg-primary/20 text-primary-foreground font-semibold">
-													{channel.name?.charAt(0).toUpperCase()}
-												</AvatarFallback>
-											</Avatar>
-											<span
-												className={cn(
-													"absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[2.5px] border-secondary",
-													channel.metadata?.icon ? "bg-muted-foreground" : "bg-muted-foreground"
-												)}
+											<UserCard
+												userName={channel.name}
+												image={channel.metadata?.icon ?? undefined}
+												status={"none"}
 											/>
+											{channelUnreadCount > 0 && (
+												<span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
+													{channelUnreadCount > 99 ? '99+' : channelUnreadCount}
+												</span>
+											)}
 										</div>
 
 										{/* Channel Info */}

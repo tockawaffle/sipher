@@ -1,9 +1,8 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { PhoneIcon, SearchIcon, UserIcon, UsersIcon, VideoIcon } from "lucide-react"
-import { Avatar, AvatarFallback, AvatarImage } from "../avatar"
+import UserCard from "../user/user-card"
 
 export interface PageHeaderProps {
 	currentChannel: SiPher.Channel | null
@@ -25,13 +24,6 @@ export interface PageHeaderProps {
 	serverId?: string
 	serverChannelId?: string
 }
-
-const statusColors: Record<"online" | "busy" | "offline" | "away", string> = {
-	online: "bg-emerald-500",
-	busy: "bg-red-500",
-	away: "bg-yellow-500",
-	offline: "bg-muted-foreground"
-};
 
 export function PageHeader({
 	currentChannel,
@@ -63,20 +55,12 @@ export function PageHeader({
 			{/* Page title/options */}
 			{dmChannel ? (
 				<div className="flex flex-row justify-start items-center gap-2 w-full px-4">
-					<div className="relative shrink-0">
-						<Avatar className="size-4 ring-2 ring-border">
-							<AvatarImage src={dmChannel.participantDetails[0].image ?? undefined} alt={dmChannel.participantDetails[0].name} />
-							<AvatarFallback className="bg-primary/20 text-primary-foreground font-semibold">
-								{dmChannel.participantDetails[0].name?.charAt(0).toUpperCase()}
-							</AvatarFallback>
-						</Avatar>
-						<span
-							className={cn(
-								"absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-2 border-secondary",
-								dmChannel.participantDetails[0].status ? statusColors[dmChannel.participantDetails[0].status as "online" | "busy" | "offline" | "away"] : "bg-muted-foreground"
-							)}
-						/>
-					</div>
+					<UserCard
+						userName={dmChannel.participantDetails[0].name}
+						image={dmChannel.participantDetails[0].image}
+						status={dmChannel.participantDetails[0].status}
+						size="small"
+					/>
 					<span className="text-sm font-medium">{dmChannel.participantDetails[0].name}</span>
 					<div className="flex flex-row gap-2 ml-auto">
 						<Button

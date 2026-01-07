@@ -1,8 +1,12 @@
 declare global {
 	declare namespace SiPher.Messages.ClientEncrypted {
 		type EncryptedMessage = {
+			id: string,
+			channelId: string,
+			fromUserId: string,
+			timestamp: number,
+			status: "sent" | "delivered" | "read",
 			content: string,
-			iv?: string
 		}
 		type MessageEvent = {
 			message: {

@@ -1,10 +1,10 @@
 "use client"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { getOrCreateDmChannel } from "@/lib/db"
 import { MessageCircleIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
+import UserCard from "../user/user-card"
 import { FriendActionsMenu } from "./friend-actions-menu"
 
 export interface FriendData {
@@ -45,12 +45,6 @@ export function FriendListItem({
 	const router = useRouter()
 	const displayName = friend.displayUsername || friend.username || friend.name
 	const status = friend.status?.status || "offline"
-	const statusColor = {
-		online: "bg-green-500",
-		idle: "bg-yellow-500",
-		dnd: "bg-red-500",
-		offline: "bg-gray-500"
-	}[status as "online" | "idle" | "dnd" | "offline"]
 
 	return (
 		<div
@@ -66,18 +60,12 @@ export function FriendListItem({
 		>
 			{/* Left side: Avatar + Info */}
 			<div className="flex flex-row items-center gap-3 flex-1 min-w-0">
-				<div className="relative shrink-0">
-					<Avatar className="size-10">
-						<AvatarImage src={friend.image || undefined} />
-						<AvatarFallback className="text-sm font-medium">
-							{displayName?.charAt(0).toUpperCase()}
-						</AvatarFallback>
-					</Avatar>
-					<div
-						className={`absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-[2.5px] border-background ${statusColor}`}
-						title={status}
-					/>
-				</div>
+				<UserCard
+					userName={displayName ?? ""}
+					image={friend.image ?? undefined}
+					status={status}
+				/>
+
 				<div className="flex flex-col justify-center items-start overflow-hidden flex-1 min-w-0">
 					<span className="text-sm font-semibold truncate w-full text-foreground">
 						{displayName}

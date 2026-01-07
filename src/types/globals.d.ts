@@ -1,5 +1,6 @@
 import { Session, User } from "better-auth";
 import { Socket, Server as SocketIOServer } from "socket.io";
+import { Id } from "../../../convex/_generated/dataModel";
 
 declare global {
 	namespace SiPher {
@@ -113,9 +114,31 @@ declare global {
 			id: string,
 			system: System
 		}
+
+		type ParticipantDetail = {
+			id: Id<"user">
+			name: string
+			username: string | null | undefined
+			displayUsername: string | null | undefined
+			image: string | null | undefined
+			status: "online" | "busy" | "offline" | "away"
+			olmAccount: {
+				_id: Id<"olmAccount">
+				_creationTime: number
+				userId: Id<"user">
+				identityKey: {
+					curve25519: string
+					ed25519: string
+				}
+				oneTimeKeys: Array<{
+					keyId: string
+					publicKey: string
+				}>
+			} | null
+		}
 	}
 
-	// Add custom socket.io types
+
 }
 
 // Extend Socket.io types to include authenticated user data

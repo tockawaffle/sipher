@@ -1,4 +1,4 @@
-import makeKeysOnSignUp from "@/app/auth/scripts/makeKeys";
+import makeKeysOnSignUp, { loadOlm } from "@/app/auth/scripts/makeKeys";
 import { db } from "@/lib/db";
 
 // ============================================
@@ -15,6 +15,39 @@ export type SendKeysToServerFn = (args: {
 // ============================================
 // Local OLM Account Management
 // ============================================
+
+/**
+ * Unpickle and retrieve the OLM account for a user
+ * @param userId - The user's ID
+ * @param password - The password used to pickle the account
+ * @returns Promise resolving to the unpickled Olm.Account, or null if not found
+ */
+export async function getOlmAccount(
+	userId: string,
+	password: string
+): Promise<any | null> {
+	// Check cache first
+	if ((window as any).olmAccountCache?.[userId]) {
+		return (window as any).olmAccountCache[userId];
+	}
+
+	// Get pickled account from DB
+	const pickledData = await db.olmAccounts.get(userId);
+	if (!pickledData) return null;
+
+	// Load OLM and unpickle
+	const Olm = await loadOlm();
+	const account = new Olm.Account();
+	account.unpickle(password, pickledData.pickledAccount);
+
+	// Cache it
+	if (!(window as any).olmAccountCache) {
+		(window as any).olmAccountCache = {};
+	}
+	(window as any).olmAccountCache[userId] = account;
+
+	return account;
+}
 
 /**
  * Check if user has an OLM account stored locally in IndexedDB
@@ -110,4 +143,3 @@ export async function handleOlmAccountCreation(
 		return false;
 	}
 }
-

@@ -1,3 +1,19 @@
+/**
+ * @deprecated This hook has been replaced with a context-based approach.
+ * 
+ * Please use the SocketProvider and useSocketContext instead:
+ * 
+ * @example
+ * ```tsx
+ * import { SocketProvider, useSocketContext } from '@/contexts/socket-context';
+ * 
+ * // In your component:
+ * const { sendMessage, socketStatus, socketInfo, disconnect, connect } = useSocketContext();
+ * ```
+ * 
+ * This file will be removed in a future version.
+ */
+
 "use client"
 
 import { useMutation } from "convex/react";
@@ -16,6 +32,7 @@ interface UseSocketProps {
 	refetchUser: () => void;
 }
 
+/** @deprecated Use useSocketContext from '@/contexts/socket-context' instead */
 export function useSocket({ user, refetchUser }: UseSocketProps) {
 	const updateUserStatus = useMutation(api.auth.updateUserStatus);
 	const socketRef = useRef<Socket | null>(null);
@@ -50,6 +67,15 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 			refetchUser();
 		}
 	}, [refetchUser]);
+
+	const sendMessage = useCallback((message: { type: 0 | 1; body: string }, to: string) => {
+		if (!socketRef.current) return;
+
+		socketRef.current.emit("dm:send", {
+			to,
+			content: JSON.stringify(message),
+		});
+	}, [socketRef]);
 
 	useEffect(() => {
 		if (!user.id) return;
@@ -191,6 +217,6 @@ export function useSocket({ user, refetchUser }: UseSocketProps) {
 		};
 	}, [user.id, updateUserStatus]);
 
-	return { socketStatus, socketInfo, disconnect, connect };
+	return { socketStatus, socketInfo, disconnect, connect, sendMessage };
 }
 

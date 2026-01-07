@@ -25,7 +25,7 @@ interface DmMessage {
 }
 
 const dmEvent: SiPher.EventsType = {
-	name: "dm",
+	name: "dm:send",
 	description: "Send a direct message to another user using the client-side encryption",
 	category: "user",
 	type: "message",
@@ -48,27 +48,14 @@ const dmEvent: SiPher.EventsType = {
 		// Join sender to the DM room
 		socket.join(roomId);
 
-		const message = {
-			roomId,
-			from: {
-				id: sender.id,
-				name: sender.name,
-				email: sender.email,
-			},
-			to,
-			content, // <-- We can assume this was encrypted by the user
-			timestamp: Date.now(),
-		};
-
 		// Send to the DM room (for users already in the room)
-		io.to(roomId).emit("dm:message", message);
+		io.to(roomId).emit("dm:message", JSON.parse(content));
 
 		// Also send directly to recipient's socket (socket.id = user.id)
 		// This ensures they receive the message even if not in the DM room yet
 		io.to(to).emit("dm:new", {
-			...message,
-			// Include sender info so recipient can identify the conversation
-			participants: [sender.id, to],
+			content: JSON.parse(content),
+			participants: [sender.id, to].sort(),
 		});
 
 		console.log(`[DM] ${sender.id} → ${to} in room ${roomId}`);

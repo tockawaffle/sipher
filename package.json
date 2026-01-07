@@ -12,7 +12,7 @@
 	"dependencies": {
 		"@better-fetch/fetch": "^1.1.21",
 		"@convex-dev/better-auth": "^0.10.9",
-		"@marsidev/react-turnstile": "^1.4.0",
+		"@marsidev/react-turnstile": "^1.4.1",
 		"@matrix-org/olm": "^3.2.15",
 		"@nanostores/react": "^1.0.0",
 		"@phosphor-icons/react": "^2.1.10",
@@ -30,7 +30,7 @@
 		"@radix-ui/react-slot": "^1.2.4",
 		"@radix-ui/react-tooltip": "^1.2.8",
 		"@types/libsodium-wrappers": "^0.7.14",
-		"better-auth": "1.4.9",
+		"better-auth": "1.4.10",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
@@ -39,8 +39,8 @@
 		"date-fns": "^4.1.0",
 		"dexie": "^4.2.1",
 		"dexie-react-hooks": "^4.2.0",
-		"framer-motion": "^12.23.26",
-		"libsodium-wrappers": "^0.7.15",
+		"framer-motion": "^12.23.27",
+		"libsodium-wrappers": "^0.7.16",
 		"lucide-react": "^0.562.0",
 		"nanostores": "^1.1.0",
 		"next": "16.1.1",
@@ -53,7 +53,7 @@
 		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.4.0",
 		"ws": "^8.18.3",
-		"zod": "^4.2.1"
+		"zod": "^4.3.5"
 	},
 	"devDependencies": {
 		"@tailwindcss/postcss": "^4.1.18",

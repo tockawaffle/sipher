@@ -83,7 +83,7 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 				</SidebarContent>
 			</Sidebar>
 
-			<div className="flex flex-col flex-1 min-h-screen">
+			<div className="flex flex-col flex-1 h-svh min-h-0 overflow-hidden">
 				<header className="flex items-center justify-between md:justify-center gap-2 px-4 py-0.5 md:border-none border-b border-border backdrop-blur sticky top-0 z-10">
 					<div className="flex items-center gap-2 md:hidden">
 						<SidebarTrigger className="size-9" />
@@ -124,8 +124,8 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 					</div>
 					<div className="w-9 md:hidden" /> {/* Spacer for centering on mobile */}
 				</header>
-				<SidebarInset className="mr-0 mb-0 border-none flex-1 rounded-l-lg">
-					<div className="w-full h-full bg-background border-border border rounded-l-lg rounded-bl-none overflow-auto">
+				<SidebarInset className="mr-0 mb-0 border-none flex-1 min-h-0 overflow-hidden rounded-l-lg">
+					<div className="w-full h-full bg-background border-border border rounded-l-lg rounded-bl-none overflow-hidden min-h-0">
 						{children}
 					</div>
 				</SidebarInset>

@@ -927,6 +927,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         {
+          join?: any;
           limit?: number;
           model:
             | "user"
@@ -981,6 +982,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         {
+          join?: any;
           model:
             | "user"
             | "userStatus"
@@ -1986,6 +1988,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
     };
     olm: {
       index: {
+        consumeOTK: FunctionReference<
+          "mutation",
+          "internal",
+          { keyId: string; userId: string },
+          any,
+          Name
+        >;
         retrieveServerOlmAccount: FunctionReference<
           "query",
           "internal",

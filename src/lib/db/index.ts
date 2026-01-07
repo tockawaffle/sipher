@@ -22,16 +22,6 @@ export interface OlmSession {
 	updatedAt: number;
 }
 
-/** Message stored locally */
-export interface Message {
-	id: string; // Unique message ID
-	channelId: string; // Channel this belongs to
-	fromUserId: string;
-	content: string; // Decrypted content
-	timestamp: number;
-	status: "sent" | "delivered" | "read";
-}
-
 /** Unread count per channel */
 export interface UnreadCount {
 	channelId: string;
@@ -46,7 +36,7 @@ class SipherDB extends Dexie {
 	olmAccounts!: EntityTable<OlmAccount, "odId">;
 	olmSessions!: EntityTable<OlmSession, "odId">;
 	channels!: EntityTable<SiPher.Channel, "id">;
-	messages!: EntityTable<Message, "id">;
+	messages!: EntityTable<SiPher.Messages.ClientEncrypted.EncryptedMessage, "id">;
 	unreadCounts!: EntityTable<UnreadCount, "channelId">;
 
 	constructor() {
@@ -71,7 +61,7 @@ export const db = new SipherDB();
 /** Get or create a DM channel with another user */
 export async function getOrCreateDmChannel(
 	myUserId: string,
-	otherUser: any
+	otherUser: SiPher.ParticipantDetail
 ): Promise<SiPher.Channel> {
 	// Generate deterministic channel ID
 	const channelId = getDmRoomId(myUserId, otherUser.id);
@@ -109,7 +99,7 @@ export async function getChannelMessages(
 	channelId: string,
 	limit = 50,
 	before?: number
-): Promise<Message[]> {
+): Promise<SiPher.Messages.ClientEncrypted.EncryptedMessage[]> {
 	let query = db.messages.where("channelId").equals(channelId);
 
 	if (before) {
@@ -120,7 +110,12 @@ export async function getChannelMessages(
 }
 
 /** Add a message to local storage */
-export async function addMessage(message: Omit<Message, "id">): Promise<string> {
+export async function sendMessage(
+	message: Omit<SiPher.Messages.ClientEncrypted.EncryptedMessage, "id"> & { to: string },
+	olmSession: Olm.Session,
+	sendMessage: (message: { type: 0 | 1; body: string }, to: string) => void,
+	saveSession?: { userId: string; recipientId: string; password: string }
+): Promise<string> {
 	const id = crypto.randomUUID();
 	await db.messages.add({ ...message, id });
 
@@ -131,7 +126,47 @@ export async function addMessage(message: Omit<Message, "id">): Promise<string> 
 		channel.times.updatedAt = Date.now();
 	});
 
+	// Encrypt the message
+	const encrypted = olmSession.encrypt(
+		JSON.stringify({
+			id,
+			channelId: message.channelId,
+			fromUserId: message.fromUserId,
+			timestamp: message.timestamp,
+			status: message.status,
+			content: message.content,
+		} satisfies SiPher.Messages.ClientEncrypted.EncryptedMessage)
+	)
+
+	// CRITICAL: Save the updated session after encrypt (ratchet has advanced)
+	if (saveSession) {
+		await db.olmSessions
+			.where("[odId+recipientId]")
+			.equals([saveSession.userId, saveSession.recipientId])
+			.modify({
+				pickledSession: olmSession.pickle(saveSession.password),
+				updatedAt: Date.now(),
+			});
+		console.debug("[DB] Session state saved after encrypt");
+	}
+
+	// Send the message using the socket
+	sendMessage(encrypted, message.to);
+
 	return id;
+}
+
+export async function storeMessage(
+	message: SiPher.Messages.ClientEncrypted.EncryptedMessage
+		& { to: string }
+): Promise<void> {
+	await db.messages.add(message);
+	await db.channels.where("id").equals(message.channelId).modify((channel) => {
+		channel.times.lastMessage = message;
+		channel.times.lastMessageAt = message.timestamp;
+		channel.times.updatedAt = Date.now();
+	});
+	await incrementUnread(message.channelId);
 }
 
 /** Increment unread count for a channel */
@@ -146,20 +181,12 @@ export async function incrementUnread(channelId: string): Promise<void> {
 
 /** Clear unread count for a channel */
 export async function clearUnread(channelId: string): Promise<void> {
-	await db.unreadCounts.put({ channelId, count: 0 });
+	await db.unreadCounts.delete(channelId);
+	console.log(`[DB] Cleared unread count for channel ${channelId}`);
 }
 
 /** Get total unread count across all channels */
 export async function getTotalUnread(): Promise<number> {
 	const all = await db.unreadCounts.toArray();
 	return all.reduce((sum, item) => sum + item.count, 0);
-}
-
-/** Hash a string (for deterministic IDs) */
-async function hashString(str: string): Promise<string> {
-	const encoder = new TextEncoder();
-	const data = encoder.encode(str);
-	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
