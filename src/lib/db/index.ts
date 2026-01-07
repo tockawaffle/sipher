@@ -61,7 +61,10 @@ export const db = new SipherDB();
 /** Get or create a DM channel with another user */
 export async function getOrCreateDmChannel(
 	myUserId: string,
-	otherUser: SiPher.ParticipantDetail
+	otherUser: {
+		id: string
+		name: string
+	}
 ): Promise<SiPher.Channel> {
 	// Generate deterministic channel ID
 	const channelId = getDmRoomId(myUserId, otherUser.id);

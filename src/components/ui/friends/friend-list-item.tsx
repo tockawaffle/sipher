@@ -51,7 +51,10 @@ export function FriendListItem({
 			className="flex flex-row items-center justify-between w-full p-3 rounded-md hover:bg-accent/50 transition-colors group border border-transparent hover:border-border/40 hover:cursor-pointer"
 			onClick={() => {
 				// Call the db to create or get the dm channel
-				getOrCreateDmChannel(userId, friend).then((channel) => {
+				getOrCreateDmChannel(userId, {
+					id: friend._id,
+					name: displayName ?? "",
+				}).then((channel) => {
 					if (channel) {
 						router.push(`/channels/me/${channel.id}`)
 					}

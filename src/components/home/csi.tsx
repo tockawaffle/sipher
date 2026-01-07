@@ -65,7 +65,7 @@ export default function ConnectionStatusIndicator({ socketStatus, socketInfo, di
 		}
 	};
 
-	const config = statusConfig[socketStatus] || statusConfig.error;
+	const config = statusConfig[socketStatus as keyof typeof statusConfig] || statusConfig.error;
 
 	const getPingQuality = (ping: number | null) => {
 		if (!ping) return { label: "Unknown", color: "text-muted-foreground" };
