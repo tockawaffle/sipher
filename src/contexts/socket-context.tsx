@@ -159,12 +159,6 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			if (!currentUserId) {
 				console.error("[Socket]: No user ID available");
 				return;
-			} else if (
-				data.participants.length !== 2 ||
-				data.participants.some((participant) => participant === currentUserId)
-			) {
-				console.error("[Socket]: Invalid DM data, participants:", data.participants, "currentUserId:", currentUserId);
-				return;
 			}
 
 			// Extract sender from participants
@@ -229,14 +223,14 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 	useEffect(() => {
 		if (!olmAccount || !olmIsReady || messageQueueRef.current.length === 0) return;
 
-		console.log(`[Socket]: OLM is now ready, processing ${messageQueueRef.current.length} queued messages`);
+		console.log(`[Socket - processQueue]: OLM is now ready, processing ${messageQueueRef.current.length} queued messages`);
 
 		const processQueue = async () => {
 			const queue = [...messageQueueRef.current];
 			messageQueueRef.current = []; // Clear queue
 
 			for (const data of queue) {
-				console.log("[Socket]: Processing queued message:", data);
+				console.log("[Socket - processQueue]: Processing queued message:", data);
 				await processIncomingDM(data);
 			}
 		};
@@ -290,7 +284,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			}
 		) {
 			if (!oldStatus) {
-				console.log("🔌 User default status set to online");
+				console.log("[Socket - setUserDefaultStatus]: User default status set to online");
 				updateAndRefetchUserStatus("online", false);
 				return;
 			}
@@ -298,7 +292,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			if (newStatus === "offline") {
 				updateAndRefetchUserStatus(newStatus, oldStatus.isUserSet);
 			} else if (!oldStatus.isUserSet) {
-				console.log("🔌 User default status set to online");
+				console.log("[Socket - setUserDefaultStatus]: User default status set to online");
 				updateAndRefetchUserStatus(newStatus, oldStatus.isUserSet);
 			} else {
 				updateAndRefetchUserStatus(oldStatus.status, oldStatus.isUserSet);
@@ -306,7 +300,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		}
 
 		socket.on("connect", () => {
-			console.log("✅ Connected to socket - Authentication successful!");
+			console.log("[Socket - connect]: Connected to socket - Authentication successful!");
 			setSocketStatus("connected");
 			updateSocketInfo({
 				connectedAt: Date.now(),
@@ -329,7 +323,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("connect_error", (err) => {
-			console.error("❌ Socket connection error:", err.message);
+			console.error("[Socket - connect_error]: Socket connection error:", err.message);
 			setUserDefaultStatus("offline", userStatusRef.current);
 			setSocketStatus("error");
 			updateSocketInfo({
@@ -341,7 +335,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("disconnect", (reason) => {
-			console.log("🔌 Disconnected from socket:", reason);
+			console.log("[Socket - disconnect]: Disconnected from socket:", reason);
 			setSocketStatus("disconnected");
 			updateSocketInfo({
 				ping: null,
@@ -355,7 +349,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("reconnect_attempt", (attempt) => {
-			console.log("🔌 Reconnect attempt:", attempt);
+			console.log("[Socket - reconnect_attempt]: Reconnect attempt:", attempt);
 			setSocketStatus("connecting");
 			updateSocketInfo({
 				ping: null,
@@ -365,7 +359,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("reconnect_error", (error) => {
-			console.error("❌ Reconnect error:", error);
+			console.error("[Socker - reconnect_error]:", error);
 			setSocketStatus("error");
 			updateSocketInfo({
 				ping: null,
@@ -375,7 +369,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("dm:new", async (data: { content: { type: 0 | 1; body: unknown }, participants: string[] }) => {
-			console.log("🔌 New DM received:", data);
+			console.log("[Socket - dm:new]: New DM received:", data);
 
 			// Check if OLM account is loaded
 			if (!olmAccount) {

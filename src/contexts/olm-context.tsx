@@ -276,8 +276,8 @@ export function OlmProvider({
 				}
 
 				const otk = recipientOlmAccount.oneTimeKeys[0];
-				const Olm = await loadOlm();
-				const newSession = new Olm.Session();
+				const Olm: typeof import("@matrix-org/olm") = await loadOlm();
+				const newSession: Olm.Session = new Olm.Session();
 
 				newSession.create_outbound(
 					olmAccount!,

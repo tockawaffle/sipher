@@ -136,10 +136,7 @@ export default function DMChannelContent(
 			setSessionError(null);
 
 			try {
-				const session = await getSession(otherUser.id, {
-					identityKey: otherUser.olmAccount.identityKey,
-					oneTimeKeys: otherUser.olmAccount.oneTimeKeys,
-				});
+				const session = await getSession(otherUser.id, otherUser.olmAccount);
 
 				if (session) {
 					setOlmSession(session);
@@ -153,7 +150,7 @@ export default function DMChannelContent(
 		};
 
 		loadSession();
-	}, [isReady, olmAccount, otherUser, password, getSession])
+	}, [isReady, olmAccount, otherUser, password,])
 
 	// Check if OLM is ready
 	if (!isReady || !olmAccount) {
