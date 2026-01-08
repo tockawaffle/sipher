@@ -4,10 +4,9 @@
 	"private": true,
 	"scripts": {
 		"postinstall": "bun src/lib/scripts/copy-olm.ts",
-		"dev": "next dev",
+		"dev": "cross-env NODE_ENV=development PORT=3000 tsx src/server.ts",
 		"build": "bun src/lib/scripts/copy-olm.ts && next build",
-		"start": "NODE_ENV=production tsx src/server.ts",
-		"start:server": "NODE_ENV=development tsx src/server.ts"
+		"start": "cross-env NODE_ENV=production PORT=8081 tsx src/server.ts"
 	},
 	"dependencies": {
 		"@convex-dev/better-auth": "^0.10.9",
