@@ -31,6 +31,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 			requireEmailVerification: false,
 			autoSignIn: true
 		},
+		trustedOrigins: [
+			siteUrl,
+			"http://localhost:8081",
+			"https://sipher.tockanest.com"
+		],
 		user: {
 			additionalFields: {
 				metadata: {

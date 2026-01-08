@@ -53,7 +53,7 @@ export const consumeOTK = mutation({
 		keyId: v.string(),
 	},
 	handler: async (ctx, args) => {
-		const olmAccount = await ctx.db.get<"olmAccount">(args.userId as Id<"olmAccount">);
+		const olmAccount = await ctx.db.query("olmAccount").withIndex("userId", (q) => q.eq("userId", args.userId)).first();
 		if (!olmAccount) throw new Error("User has no OLM account");
 
 		const oneTimeKeys = olmAccount.oneTimeKeys;
@@ -61,7 +61,8 @@ export const consumeOTK = mutation({
 		if (keyIndex === -1) throw new Error("The key to be consumed was not found");
 
 		oneTimeKeys.splice(keyIndex, 1);
-		await ctx.db.patch<"olmAccount">(args.userId as Id<"olmAccount">, {
+
+		await ctx.db.patch(olmAccount._id, {
 			oneTimeKeys,
 		});
 
