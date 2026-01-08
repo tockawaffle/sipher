@@ -58,6 +58,7 @@ export const consumeOTK = mutation({
 
 		const oneTimeKeys = olmAccount.oneTimeKeys;
 		const keyIndex = oneTimeKeys.findIndex((key) => key.keyId === args.keyId);
+
 		if (keyIndex === -1) throw new Error("The key to be consumed was not found");
 
 		oneTimeKeys.splice(keyIndex, 1);

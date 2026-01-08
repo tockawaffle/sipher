@@ -87,7 +87,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 				pickledSession: session.pickle(password),
 				updatedAt: Date.now(),
 			});
-		console.debug("[Socket] Session state saved after decrypt");
+		console.debug("[Socket]: Session state saved after decrypt");
 	}, [password]);
 
 	// Helper: Decrypt, validate, and store message
@@ -101,7 +101,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		// Decrypt the message
 		const decryptedBody = session.decrypt(messageType, encryptedBody);
 		const message = JSON.parse(decryptedBody);
-		console.debug("[Socket] Decrypted message:", message);
+		console.debug("[Socket]: Decrypted message:", message);
 
 		// Save session state after decryption
 		await saveSessionState(session, currentUserId, fromUserId);
@@ -109,14 +109,14 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		// Validate with ZOD
 		const validatedMessage = MESSAGE_SCHEMA.safeParse(message);
 		if (!validatedMessage.success) {
-			console.error("[Socket] Invalid message:", validatedMessage.error);
+			console.error("[Socket]: Invalid message:", validatedMessage.error);
 			throw new Error("Invalid message format");
 		}
 
 		// Store message and increment unread count
 		await storeMessage(validatedMessage.data as SiPher.Messages.ClientEncrypted.EncryptedMessage & { to: string });
 		await incrementUnread(validatedMessage.data.channelId);
-		console.debug("[Socket] Message stored successfully");
+		console.debug("[Socket]: Message stored successfully");
 	}, [saveSessionState]);
 
 	// Manual disconnect function
@@ -141,7 +141,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 
 	const sendMessage = useCallback((message: { type: 0 | 1; body: string }, to: string) => {
 		if (!socketRef.current) {
-			console.warn("⚠️ Cannot send message: Socket not connected");
+			console.warn("[Socket]: Cannot send message due to socket not being connected");
 			return;
 		}
 
@@ -152,84 +152,91 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 	}, []);
 
 	// Define message processor that can be called from both socket handler and queue processor
-	const processIncomingDM = useCallback(async (data: { content: { type: 0 | 1; body: unknown }, participants: string[] }) => {
-		// Get the current user id
-		const currentUserId = user.id;
-		if (!currentUserId) {
-			console.error("[Socket] No user ID available");
-			return;
-		}
-
-		// Extract sender from participants
-		const fromUserId = data.participants.find((participant) => participant !== currentUserId);
-		if (!fromUserId) {
-			console.error("[Socket] Could not determine sender from participants");
-			return;
-		}
-
-		// Fetch participant details
-		try {
-			const participantDetails = await convex.query(api.auth.getParticipantDetails, {
-				participantIds: [fromUserId]
-			});
-
-			const fromUser = participantDetails?.[0];
-			if (!fromUser) {
-				console.error("[Socket] Failed to get from user");
+	const processIncomingDM = useCallback(
+		async (data: { content: { type: 0 | 1; body: unknown }, participants: string[] }) => {
+			// Get the current user id
+			const currentUserId = user.id;
+			if (!currentUserId) {
+				console.error("[Socket]: No user ID available");
+				return;
+			} else if (
+				data.participants.length !== 2 ||
+				data.participants.some((participant) => participant === currentUserId)
+			) {
+				console.error("[Socket]: Invalid DM data, participants:", data.participants, "currentUserId:", currentUserId);
 				return;
 			}
 
-			const { type, body } = data.content;
-
-			switch (type) {
-				case 0: {
-					console.debug("[Socket] Received inbound message from pre-key message");
-
-					const session = await createInboundSession(fromUserId, body as string);
-					if (!session) {
-						console.error("[Socket] Failed to create inbound session");
-						return;
-					}
-
-					// Now we can create or open the DM channel
-					await getOrCreateDmChannel(currentUserId, fromUser);
-
-					// Decrypt, validate, and store using helper
-					await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
-					break;
-				}
-				case 1: {
-					console.debug("[Socket] Received regular message");
-
-					// Get existing session from cache
-					const session = sessions.get(fromUserId);
-					if (!session) {
-						console.error("[Socket] No session found for sender. This shouldn't happen!");
-						return;
-					}
-
-					// Decrypt, validate, and store using helper
-					await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
-					break;
-				}
+			// Extract sender from participants
+			const fromUserId = data.participants.find((participant) => participant !== currentUserId);
+			if (!fromUserId) {
+				console.error("[Socket]: Could not determine sender from participants");
+				return;
 			}
-		} catch (error) {
-			console.error("[Socket] Error handling incoming DM:", error);
-		}
-	}, [user.id, createInboundSession, sessions, decryptAndStoreMessage]);
+
+			// Fetch participant details
+			try {
+				const participantDetails = await convex.query(api.auth.getParticipantDetails, {
+					participantIds: [fromUserId]
+				});
+
+				const fromUser = participantDetails?.[0];
+				if (!fromUser) {
+					console.error("[Socket]: Failed to get from user");
+					return;
+				}
+
+				const { type, body } = data.content;
+
+				switch (type) {
+					case 0: {
+						console.debug("[Socket]: Received inbound message from pre-key message");
+
+						const session = await createInboundSession(fromUserId, body as string);
+						if (!session) {
+							console.error("[Socket]: Failed to create inbound session");
+							return;
+						}
+
+						// Now we can create or open the DM channel
+						await getOrCreateDmChannel(currentUserId, fromUser);
+
+						// Decrypt, validate, and store using helper
+						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
+						break;
+					}
+					case 1: {
+						console.debug("[Socket]: Received regular message");
+
+						// Get existing session from cache
+						const session = sessions.get(fromUserId);
+						if (!session) {
+							console.error("[Socket]: No session found for sender. This shouldn't happen!");
+							return;
+						}
+
+						// Decrypt, validate, and store using helper
+						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
+						break;
+					}
+				}
+			} catch (error) {
+				console.error("[Socket]: Error handling incoming DM:", error);
+			}
+		}, [user.id, createInboundSession, sessions, decryptAndStoreMessage]);
 
 	// Process queued messages when OLM becomes ready
 	useEffect(() => {
 		if (!olmAccount || !olmIsReady || messageQueueRef.current.length === 0) return;
 
-		console.log(`[Socket] OLM is now ready, processing ${messageQueueRef.current.length} queued messages`);
+		console.log(`[Socket]: OLM is now ready, processing ${messageQueueRef.current.length} queued messages`);
 
 		const processQueue = async () => {
 			const queue = [...messageQueueRef.current];
 			messageQueueRef.current = []; // Clear queue
 
 			for (const data of queue) {
-				console.log("[Socket] Processing queued message:", data);
+				console.log("[Socket]: Processing queued message:", data);
 				await processIncomingDM(data);
 			}
 		};
@@ -255,7 +262,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			// Use acknowledgment callback for reliable latency measurement
 			socket.timeout(5000).emit("ping", (err: Error, serverTimestamp: number) => {
 				if (err) {
-					console.warn("[Socket] Ping timeout or error:", err);
+					console.warn("[Socket]: Ping timeout or error:", err);
 					updateSocketInfo({ ping: null });
 					return;
 				}
@@ -372,12 +379,13 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 
 			// Check if OLM account is loaded
 			if (!olmAccount) {
-				console.warn("[Socket] OLM account not loaded yet, queueing message for later processing");
+				console.warn("[Socket]: OLM account not loaded yet, queueing message for later processing");
 				messageQueueRef.current.push(data);
 				return;
 			}
 
 			// Process immediately if OLM is ready
+			console.debug("[Socket]: Processing incoming DM immediately:", data);
 			await processIncomingDM(data);
 		});
 

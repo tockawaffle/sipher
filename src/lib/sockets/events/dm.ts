@@ -48,15 +48,31 @@ const dmEvent: SiPher.EventsType = {
 		// Join sender to the DM room
 		socket.join(roomId);
 
+		// Message parser:
+		// 08/01/2026: I bwoke it :3 - Cete
+		const message: {
+			type: 0 | 1;
+			body: string;
+		} = typeof content === "string" ? JSON.parse(content) : content;
+
 		// Send to the DM room (for users already in the room)
-		io.to(roomId).emit("dm:message", JSON.parse(content));
+		io.to(roomId).emit("dm:message", message);
 
 		// Also send directly to recipient's socket (socket.id = user.id)
 		// This ensures they receive the message even if not in the DM room yet
-		io.to(to).emit("dm:new", {
-			content: JSON.parse(content),
+		const dmData = {
+			content: message,
 			participants: [sender.id, to].sort(),
-		});
+		};
+
+		// Before sending, check if the participant ids are not the same (This is happening) 
+		if (sender.id === to) {
+			socket.emit("error", { message: "Cannot send DM to yourself" });
+			console.error("[DM] Cannot send DM to yourself: ", sender.id, "→", to);
+			return;
+		}
+
+		io.to(to).emit("dm:new", dmData);
 
 		console.log(`[DM] ${sender.id} → ${to} in room ${roomId}`);
 	},

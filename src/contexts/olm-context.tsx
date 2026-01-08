@@ -59,6 +59,8 @@ export function OlmProvider({
 
 	// Cache sessions in memory: recipientId -> Session
 	const sessionsRef = useRef<Map<string, Olm.Session>>(new Map());
+	// Track pending session creation to prevent race conditions
+	const pendingSessionsRef = useRef<Map<string, Promise<Olm.Session | null>>>(new Map());
 	const [, forceUpdate] = useState({});
 
 	// Helper: Cache session in memory
@@ -82,7 +84,7 @@ export function OlmProvider({
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
 		});
-		console.debug("[OlmContext] ✓ Session saved to DB");
+		console.debug("[OlmContext]: Session saved to DB");
 	}, [userId]);
 
 	// Helper: Unpickle session from database
@@ -95,10 +97,10 @@ export function OlmProvider({
 			const Olm = await loadOlm();
 			const session = new Olm.Session();
 			session.unpickle(sessionPassword, pickledSession);
-			console.debug("[OlmContext] ✓ Session unpickled from DB");
+			console.debug("[OlmContext]: Session unpickled from DB");
 			return session;
 		} catch (err) {
-			console.warn("[OlmContext] Failed to unpickle session:", err);
+			console.warn("[OlmContext]: Failed to unpickle session:", err);
 			// Delete corrupted session
 			if (userId) {
 				await db.olmSessions
@@ -120,7 +122,7 @@ export function OlmProvider({
 
 		const missing = requirements.find(req => !req.value);
 		if (missing) {
-			console.error(`[OlmContext] Cannot perform session operation: missing ${missing.name}`);
+			console.error(`[OlmContext]: Cannot perform session operation: missing ${missing.name}`);
 			return false;
 		}
 
@@ -170,17 +172,17 @@ export function OlmProvider({
 
 		const loadAccount = async () => {
 			try {
-				console.debug("[OlmContext] Loading OLM account...");
+				console.debug("[OlmContext]: Loading OLM account...");
 				const account = await getOlmAccount(userId, password);
 				if (!account) {
-					console.warn("[OlmContext] No OLM account found");
+					console.warn("[OlmContext]: No OLM account found");
 					return;
 				}
 
 				setOlmAccount(account);
-				console.debug("[OlmContext] ✓ OLM account loaded successfully");
+				console.debug("[OlmContext]: OLM account loaded successfully");
 			} catch (err) {
-				console.error("[OlmContext] Failed to load OLM account:", err);
+				console.error("[OlmContext]: Failed to load OLM account:", err);
 				// Password might be wrong - clear it
 				clearPassword();
 			}
@@ -232,73 +234,91 @@ export function OlmProvider({
 
 		// Check if we already have this session in memory
 		if (sessionsRef.current.has(recipientId)) {
-			console.debug(`[OlmContext] Using cached session for ${recipientId}`);
+			console.debug(`[OlmContext]: Using cached session for ${recipientId}`);
 			return sessionsRef.current.get(recipientId)!;
 		}
 
-		try {
-			console.debug(`[OlmContext] Loading/creating session for user ${recipientId}`);
-
-			// Check if session exists in DB
-			const existingSession = await db.olmSessions
-				.where("[odId+recipientId]")
-				.equals([userId!, recipientId])
-				.first();
-
-			if (existingSession) {
-				console.debug("[OlmContext] Found existing session in DB, unpickling...");
-				const session = await unpickleSessionFromDb(recipientId, existingSession.pickledSession, password!);
-
-				if (session) {
-					cacheSession(recipientId, session);
-					console.debug("[OlmContext] ✓ Session loaded from DB");
-					return session;
-				}
-				// If unpickling failed, continue to create new session
-			}
-
-			// Create new outbound session
-			console.debug("[OlmContext] Creating new outbound session...");
-
-			if (recipientOlmAccount.oneTimeKeys.length === 0) {
-				throw new Error("No one-time keys available for recipient");
-			}
-
-			const otk = recipientOlmAccount.oneTimeKeys[0];
-			const Olm = await loadOlm();
-			const newSession = new Olm.Session();
-
-			newSession.create_outbound(
-				olmAccount!,
-				recipientOlmAccount.identityKey.curve25519,
-				otk.publicKey
-			);
-
-			console.debug(`[OlmContext] ✓ Created session: ${newSession.session_id()}`);
-
-			// Save to DB
-			await saveSessionToDb(recipientId, newSession, password!);
-
-			// Consume the OTK from server
-			try {
-				await consumeOTK({
-					userId: recipientId,
-					keyId: otk.keyId,
-				});
-				console.debug(`[OlmContext] ✓ Consumed OTK: ${otk.keyId}`);
-			} catch (err) {
-				console.error("[OlmContext] Failed to consume OTK:", err);
-			}
-
-			// Cache it
-			cacheSession(recipientId, newSession);
-
-			return newSession;
-		} catch (err) {
-			console.error("[OlmContext] Failed to get/create session:", err);
-			return null;
+		// Check if session creation is already in progress for this recipient
+		const pendingSession = pendingSessionsRef.current.get(recipientId);
+		if (pendingSession) {
+			console.debug(`[OlmContext]: Waiting for pending session creation for ${recipientId}`);
+			return pendingSession;
 		}
-	}, [userId, olmAccount, password, consumeOTK, validateSessionRequirements, unpickleSessionFromDb, cacheSession, saveSessionToDb]);
+
+		// Create a new promise for this session creation
+		const sessionPromise = (async () => {
+			try {
+				console.debug(`[OlmContext]: Loading/creating session for user ${recipientId}`);
+
+				// Check if session exists in DB
+				const existingSession = await db.olmSessions
+					.where("[odId+recipientId]")
+					.equals([userId!, recipientId])
+					.first();
+
+				if (existingSession) {
+					console.debug("[OlmContext]: Found existing session in DB, unpickling...");
+					const session = await unpickleSessionFromDb(recipientId, existingSession.pickledSession, password!);
+
+					if (session) {
+						cacheSession(recipientId, session);
+						console.debug("[OlmContext]: Session loaded from DB");
+						return session;
+					}
+					// If unpickling failed, continue to create new session
+				}
+
+				// Create new outbound session
+				console.debug("[OlmContext]: Creating new outbound session...");
+
+				if (recipientOlmAccount.oneTimeKeys.length === 0) {
+					throw new Error("No one-time keys available for recipient");
+				}
+
+				const otk = recipientOlmAccount.oneTimeKeys[0];
+				const Olm = await loadOlm();
+				const newSession = new Olm.Session();
+
+				newSession.create_outbound(
+					olmAccount!,
+					recipientOlmAccount.identityKey.curve25519,
+					otk.publicKey
+				);
+
+				console.debug(`[OlmContext]: Created session: ${newSession.session_id()}`);
+
+				// Save to DB
+				await saveSessionToDb(recipientId, newSession, password!);
+
+				// Consume the OTK from server
+				try {
+					await consumeOTK({
+						userId: recipientId,
+						keyId: otk.keyId,
+					});
+					console.debug(`[OlmContext]: Consumed OTK: ${otk.keyId}`);
+				} catch (err) {
+					console.error("[OlmContext]: Failed to consume OTK:", err);
+				}
+
+				// Cache it
+				cacheSession(recipientId, newSession);
+
+				return newSession;
+			} catch (err) {
+				console.error("[OlmContext]: Failed to get/create session:", err);
+				return null;
+			} finally {
+				// Clean up pending promise
+				pendingSessionsRef.current.delete(recipientId);
+			}
+		})();
+
+		// Store the promise so concurrent calls can await it
+		pendingSessionsRef.current.set(recipientId, sessionPromise);
+
+		return sessionPromise;
+	}, [userId, olmAccount, password, validateSessionRequirements, unpickleSessionFromDb, cacheSession, saveSessionToDb, consumeOTK]);
 
 	// Create an INBOUND session from a received pre-key message
 	const createInboundSession = useCallback(async (
@@ -311,12 +331,12 @@ export function OlmProvider({
 
 		// Check if we already have a session with this sender
 		if (sessionsRef.current.has(senderId)) {
-			console.debug(`[OlmContext] Session already exists for ${senderId}`);
+			console.debug(`[OlmContext]: Session already exists for ${senderId}`);
 			return sessionsRef.current.get(senderId)!;
 		}
 
 		try {
-			console.debug(`[OlmContext] Creating inbound session from sender ${senderId}`);
+			console.debug(`[OlmContext]: Creating inbound session from sender ${senderId}`);
 
 			const Olm = await loadOlm();
 			const newSession = new Olm.Session();
@@ -327,7 +347,7 @@ export function OlmProvider({
 			// Remove the one-time key that was used
 			olmAccount!.remove_one_time_keys(newSession);
 
-			console.debug(`[OlmContext] ✓ Created inbound session: ${newSession.session_id()}`);
+			console.debug(`[OlmContext]: Created inbound session: ${newSession.session_id()}`);
 
 			// Save to DB
 			await saveSessionToDb(senderId, newSession, password!);
@@ -337,7 +357,7 @@ export function OlmProvider({
 
 			return newSession;
 		} catch (err) {
-			console.error("[OlmContext] Failed to create inbound session:", err);
+			console.error("[OlmContext]: Failed to create inbound session:", err);
 			return null;
 		}
 	}, [validateSessionRequirements, olmAccount, password, saveSessionToDb, cacheSession]);

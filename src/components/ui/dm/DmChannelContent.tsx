@@ -22,7 +22,10 @@ export default function DMChannelContent(
 		participantDetails,
 	}: DMChannelContentProps
 ) {
-	const otherUser = useMemo(() => participantDetails[0], [participantDetails]);
+
+	const otherUser = useMemo(() => {
+		return participantDetails.find((p) => p.id !== userId);
+	}, [participantDetails, userId]);
 	const [olmSession, setOlmSession] = useState<Olm.Session | null>(null);
 	const [sessionError, setSessionError] = useState<string | null>(null);
 	const [messageInput, setMessageInput] = useState("");
@@ -339,6 +342,7 @@ export default function DMChannelContent(
 									recipientId: otherUser.id,
 									password,
 								});
+
 								if (messageId) {
 									setMessageInput("");
 								}
