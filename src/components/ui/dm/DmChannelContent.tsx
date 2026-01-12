@@ -3,6 +3,7 @@ import { useSocketContext } from "@/contexts/socket-context";
 import { clearUnread, db, sendMessage } from "@/lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { KeyRound } from "lucide-react";
+import moment from "moment";
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "../avatar";
@@ -222,10 +223,13 @@ export default function DMChannelContent(
 			<div className="flex-1 min-h-0 overflow-hidden">
 				<div
 					ref={scrollContainerRef}
-					className="h-full overflow-y-auto"
+					className="h-full overflow-y-auto flex flex-col"
 					onScroll={handleScroll}
 				>
-					<div className="pt-4">
+					{/* Spacer to push messages to the bottom when there are few messages */}
+					<div className="flex-1 min-h-0" />
+
+					<div className="pt-2 md:pt-4">
 						{/* Load more indicator */}
 						{hasMoreMessages && (
 							<div className="flex justify-center py-4">
@@ -244,7 +248,7 @@ export default function DMChannelContent(
 												setIsLoadingMore(false);
 											}, 100);
 										}}
-										className="text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md hover:bg-muted/50"
+										className="text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md hover:bg-muted/50 active:bg-muted/70"
 									>
 										Load more messages
 									</button>
@@ -256,7 +260,8 @@ export default function DMChannelContent(
 							const selfDetail = participantDetails.find((p) => p.id === userId);
 							const isSelf = msg.fromUserId === userId;
 							const displayName = isSelf ? selfDetail?.displayUsername ?? selfDetail?.username ?? selfDetail?.name ?? "You" : (sender?.displayUsername ?? sender?.username ?? sender?.name ?? "Unknown");
-							const timeLabel = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+							const timestamp = moment(msg.timestamp);
+							const timeLabel = timestamp.isSame(moment(), "day") ? timestamp.format("h:mm A") : timestamp.format("MMM D, YYYY h:mm A");
 
 							// Check if this message is from the same user as the previous one within 5 minutes
 							const prevMsg = index > 0 ? messages[index - 1] : null;
@@ -268,12 +273,12 @@ export default function DMChannelContent(
 							return (
 								<div
 									key={msg.id}
-									className="group relative px-4 py-0.5 hover:bg-muted/50 transition-colors duration-100"
+									className="group relative px-2 md:px-4 py-0.5 hover:bg-muted/50 active:bg-muted/50 transition-colors duration-100"
 								>
 									{!isGrouped ? (
 										// Full message with avatar and header
-										<div className="flex gap-4 mt-[17px]">
-											<Avatar className="w-10 h-10 shrink-0 mt-0.5">
+										<div className="flex gap-2 md:gap-4 mt-3 md:mt-[17px]">
+											<Avatar className="w-8 h-8 md:w-10 md:h-10 shrink-0 mt-0.5">
 												<AvatarImage src={sender?.image ?? undefined} alt={displayName} />
 												<AvatarFallback className="text-xs">
 													{displayName.slice(0, 2).toUpperCase()}
@@ -281,28 +286,30 @@ export default function DMChannelContent(
 											</Avatar>
 
 											<div className="flex-1 min-w-0 pt-0.5">
-												<div className="flex items-baseline gap-2 leading-snug">
-													<span className="font-semibold text-[15px] text-foreground hover:underline cursor-pointer">
+												<div className="flex items-baseline gap-2 leading-snug flex-wrap">
+													<span className="font-semibold text-sm md:text-[15px] text-foreground hover:underline cursor-pointer">
 														{displayName}
 													</span>
-													<span className="text-[11px] text-muted-foreground font-medium">
+													<span className="text-[10px] md:text-[11px] text-muted-foreground font-medium">
 														{timeLabel}
 													</span>
 												</div>
-												<div className="text-[15px] leading-[1.375rem] text-foreground mt-0.5 wrap-break-word">
+												<div className="text-sm md:text-[15px] leading-[1.375rem] text-foreground mt-0.5 wrap-break-word">
 													{msg.content}
 												</div>
 											</div>
 										</div>
 									) : (
 										// Compact message without avatar (grouped)
-										<div className="flex gap-4 leading-[1.375rem]">
-											<div className="w-10 shrink-0 flex items-start justify-end pt-0.5">
+										<div className="flex gap-2 md:gap-4 leading-[1.375rem]">
+											<div className="w-8 md:w-10 shrink-0 flex items-start justify-end pt-0.5">
 												<span className="text-[10px] text-transparent group-hover:text-muted-foreground transition-colors duration-100 font-medium">
-													{new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+													{
+														timeLabel
+													}
 												</span>
 											</div>
-											<div className="flex-1 min-w-0 text-[15px] leading-[1.375rem] text-foreground wrap-break-word">
+											<div className="flex-1 min-w-0 text-sm md:text-[15px] leading-[1.375rem] text-foreground wrap-break-word">
 												{msg.content}
 											</div>
 										</div>
@@ -317,12 +324,17 @@ export default function DMChannelContent(
 			</div>
 
 			{/* Message input */}
-			<div className="shrink-0 px-4 pb-6 pt-2">
+			<div className="shrink-0 px-2 md:px-4 pb-4 md:pb-6 pt-2">
 				<Input
-					className="h-11 rounded-lg bg-muted border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 text-[15px]"
-					placeholder={`Message @${otherUser.username ?? otherUser.name}`}
+					className="h-10 md:h-11 rounded-lg bg-muted border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-3 md:px-4 text-sm md:text-[15px]"
+					placeholder={
+						otherUser.status === "offline" ?
+							"As of now, you cannot message offline users." :
+							`Message @${otherUser.username ?? otherUser.name}`
+					}
 					value={messageInput}
 					onChange={(e) => setMessageInput(e.target.value)}
+					disabled={otherUser.status === "offline"}
 					onKeyDown={async (e) => {
 						if (e.key === 'Enter' && !e.shiftKey && messageInput.trim() && password) {
 							e.preventDefault();

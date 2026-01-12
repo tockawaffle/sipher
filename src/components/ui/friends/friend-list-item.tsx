@@ -48,7 +48,7 @@ export function FriendListItem({
 
 	return (
 		<div
-			className="flex flex-row items-center justify-between w-full p-3 rounded-md hover:bg-accent/50 transition-colors group border border-transparent hover:border-border/40 hover:cursor-pointer"
+			className="flex flex-row items-center justify-between w-full p-2 md:p-3 rounded-md hover:bg-accent/50 active:bg-accent/60 transition-colors group border border-transparent hover:border-border/40 hover:cursor-pointer"
 			onClick={() => {
 				// Call the db to create or get the dm channel
 				getOrCreateDmChannel(userId, {
@@ -62,7 +62,7 @@ export function FriendListItem({
 			}}
 		>
 			{/* Left side: Avatar + Info */}
-			<div className="flex flex-row items-center gap-3 flex-1 min-w-0">
+			<div className="flex flex-row items-center gap-2 md:gap-3 flex-1 min-w-0">
 				<UserCard
 					userName={displayName ?? ""}
 					image={friend.image ?? undefined}
@@ -79,13 +79,16 @@ export function FriendListItem({
 				</div>
 			</div>
 
-			{/* Right side: Actions Menu */}
-			<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+			{/* Right side: Actions Menu - always visible on mobile via opacity, hover on desktop */}
+			<div className="flex items-center gap-1 md:gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					className="size-8 hover:bg-background/80"
-					onClick={() => onMessage?.(friend._id)}
+					className="size-9 md:size-8 hover:bg-background/80"
+					onClick={(e) => {
+						e.stopPropagation()
+						onMessage?.(friend._id)
+					}}
 					title="Message"
 				>
 					<MessageCircleIcon className="size-4" />

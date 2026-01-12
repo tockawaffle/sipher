@@ -8,8 +8,7 @@ import {
 	SidebarInset,
 	SidebarMenu,
 	SidebarMenuItem,
-	SidebarProvider,
-	SidebarTrigger
+	SidebarProvider
 } from "@/components/ui/sidebar";
 import { CompassIcon, HouseIcon } from "@phosphor-icons/react";
 import { Plus } from "lucide-react";
@@ -85,9 +84,6 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 
 			<div className="flex flex-col flex-1 h-svh min-h-0 overflow-hidden">
 				<header className="flex items-center justify-between md:justify-center gap-2 px-4 py-0.5 md:border-none border-b border-border backdrop-blur sticky top-0 z-10">
-					<div className="flex items-center gap-2 md:hidden">
-						<SidebarTrigger className="size-9" />
-					</div>
 					<div className="flex items-center gap-2 justify-end w-full select-none">
 						<div className="flex items-center justify-center gap-2 text-sm font-semibold w-full text-center">
 							{
@@ -122,7 +118,6 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 						{/* Socket connection status */}
 						<ConnectionStatusIndicator socketStatus={socketStatus} socketInfo={socketInfo} disconnectSocket={disconnectSocket} connectSocket={connectSocket} />
 					</div>
-					<div className="w-9 md:hidden" /> {/* Spacer for centering on mobile */}
 				</header>
 				<SidebarInset className="mr-0 mb-0 border-none flex-1 min-h-0 overflow-hidden rounded-l-lg">
 					<div className="w-full h-full bg-background border-border border rounded-l-lg rounded-bl-none overflow-hidden min-h-0">

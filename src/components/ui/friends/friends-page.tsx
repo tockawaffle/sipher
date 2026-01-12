@@ -77,19 +77,19 @@ export function FriendsPage({
 	return (
 		<div className="flex flex-col flex-1 overflow-hidden">
 			{/* Search Input - Sticky at top */}
-			<div className="flex flex-col p-4 pb-2 bg-background border-b border-border/40">
+			<div className="flex flex-col p-2 md:p-4 pb-2 bg-background border-b border-border/40">
 				<Input
 					placeholder="Search for a friend..."
 					value={friendsSearch}
 					onChange={(e) => setFriendsSearch(e.target.value)}
-					className="w-full"
+					className="w-full h-10 md:h-9"
 				/>
 			</div>
 
 			{/* Scrollable Friends List */}
-			<div className="flex flex-col flex-1 overflow-y-auto p-4">
-				<div className="flex flex-col items-start w-full gap-2">
-					<span className="text-sm text-start font-medium">
+			<div className="flex flex-col flex-1 overflow-y-auto p-2 md:p-4">
+				<div className="flex flex-col items-start w-full gap-1 md:gap-2">
+					<span className="text-xs md:text-sm text-start font-medium text-muted-foreground mb-1">
 						{friendsPage === "all"
 							? `All Friends • ${filteredFriends.length} of ${friends?.length || 0}`
 							: `Available Friends • ${filteredFriends.length} of ${friends?.filter((f: FriendData) => f && f.status?.status !== "offline").length || 0}`
@@ -110,8 +110,8 @@ export function FriendsPage({
 							/>
 						))
 					) : (
-						<div className="flex flex-col items-center justify-center w-full py-12">
-							<span className="text-sm font-medium text-muted-foreground">
+						<div className="flex flex-col items-center justify-center w-full py-8 md:py-12">
+							<span className="text-sm font-medium text-muted-foreground text-center px-4">
 								{friendsSearch ? `No friends found matching "${friendsSearch}"` : emptyMessage}
 							</span>
 						</div>
