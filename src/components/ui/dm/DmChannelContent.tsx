@@ -2,11 +2,12 @@ import { useOlmContext } from "@/contexts/olm-context";
 import { useSocketContext } from "@/contexts/socket-context";
 import { clearUnread, db, sendMessage } from "@/lib/db";
 import { useLiveQuery } from "dexie-react-hooks";
-import { KeyRound } from "lucide-react";
+import { KeyRound, SendIcon } from "lucide-react";
 import moment from "moment";
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "../avatar";
+import { Button } from "../button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../dialog";
 import { Input } from "../input";
 
@@ -294,14 +295,14 @@ export default function DMChannelContent(
 														{timeLabel}
 													</span>
 												</div>
-												<div className="text-sm md:text-[15px] leading-[1.375rem] text-foreground mt-0.5 wrap-break-word">
+												<div className="text-sm md:text-[15px] leading-5.5 text-foreground mt-0.5 wrap-break-word">
 													{msg.content}
 												</div>
 											</div>
 										</div>
 									) : (
 										// Compact message without avatar (grouped)
-										<div className="flex gap-2 md:gap-4 leading-[1.375rem]">
+										<div className="flex gap-2 md:gap-4 leading-5.5">
 											<div className="w-8 md:w-10 shrink-0 flex items-start justify-end pt-0.5">
 												<span className="text-[10px] text-transparent group-hover:text-muted-foreground transition-colors duration-100 font-medium">
 													{
@@ -309,7 +310,7 @@ export default function DMChannelContent(
 													}
 												</span>
 											</div>
-											<div className="flex-1 min-w-0 text-sm md:text-[15px] leading-[1.375rem] text-foreground wrap-break-word">
+											<div className="flex-1 min-w-0 text-sm md:text-[15px] leading-5.5 text-foreground wrap-break-word">
 												{msg.content}
 											</div>
 										</div>
@@ -324,7 +325,7 @@ export default function DMChannelContent(
 			</div>
 
 			{/* Message input */}
-			<div className="shrink-0 px-2 md:px-4 pb-4 md:pb-6 pt-2">
+			<div className="flex items-center gap-2 shrink-0 px-2 md:px-4 pb-4 md:pb-6 pt-2">
 				<Input
 					className="h-10 md:h-11 rounded-lg bg-muted border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-3 md:px-4 text-sm md:text-[15px]"
 					placeholder={
@@ -362,6 +363,9 @@ export default function DMChannelContent(
 						}
 					}}
 				/>
+				<Button className="flex md:hidden items-center justify-center h-10 md:h-11 w-10 md:w-11" variant="outline" size="icon">
+					<SendIcon className="size-4" />
+				</Button>
 			</div>
 		</div>
 	);

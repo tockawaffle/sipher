@@ -2,9 +2,10 @@
 
 import { Button } from "@/components/ui/button"
 import { clearUnread, db } from "@/lib/db"
+import { QuestionMarkIcon } from "@phosphor-icons/react"
 import { formatDistanceToNow } from "date-fns"
 import { useLiveQuery } from "dexie-react-hooks"
-import { MessageSquarePlusIcon, SettingsIcon, Sparkles, UsersIcon, XIcon } from "lucide-react"
+import { MessageSquarePlusIcon, SettingsIcon, UsersIcon, XIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import UserCard from "../user/user-card"
 
@@ -61,8 +62,8 @@ export function ChannelList({
 						<Button
 							variant="ghost"
 							className={`w-full justify-start gap-3 h-11 px-3 rounded-lg transition-all ${page === "friends"
-									? "bg-primary/10 text-primary hover:bg-primary/15 ring-1 ring-primary/20"
-									: "hover:bg-accent/60"
+								? "bg-primary/10 text-primary hover:bg-primary/15 ring-1 ring-primary/20"
+								: "hover:bg-accent/60"
 								}`}
 							onClick={() => {
 								onPageChange("friends")
@@ -70,8 +71,8 @@ export function ChannelList({
 							}}
 						>
 							<div className={`flex items-center justify-center w-8 h-8 rounded-lg ${page === "friends"
-									? "bg-primary/20"
-									: "bg-muted/50"
+								? "bg-primary/20"
+								: "bg-muted/50"
 								}`}>
 								<UsersIcon className="size-4" />
 							</div>
@@ -80,8 +81,8 @@ export function ChannelList({
 						<Button
 							variant="ghost"
 							className={`w-full justify-start gap-3 h-11 px-3 rounded-lg transition-all ${page === "support"
-									? "bg-primary/10 text-primary hover:bg-primary/15 ring-1 ring-primary/20"
-									: "hover:bg-accent/60"
+								? "bg-primary/10 text-primary hover:bg-primary/15 ring-1 ring-primary/20"
+								: "hover:bg-accent/60"
 								}`}
 							onClick={() => {
 								onPageChange("support")
@@ -89,8 +90,8 @@ export function ChannelList({
 							}}
 						>
 							<div className={`flex items-center justify-center w-8 h-8 rounded-lg ${page === "support"
-									? "bg-primary/20"
-									: "bg-muted/50"
+								? "bg-primary/20"
+								: "bg-muted/50"
 								}`}>
 								<SettingsIcon className="size-4" />
 							</div>
@@ -157,7 +158,6 @@ export function ChannelList({
 						{openDmChannels.length > 0 ? (
 							<div className="flex flex-col gap-0.5">
 								{openDmChannels.map((channel) => {
-									const participantDetails = dmChannel?.participantDetails.find((p) => p.id === channel.participants[0])
 									const isActive = dmChannel?.id === channel.id
 									const lastMessage = channel.times?.lastMessage
 									const lastMessageTime = channel.times?.lastMessageAt
@@ -239,7 +239,7 @@ export function ChannelList({
 						) : (
 							<div className="flex flex-col items-center justify-center py-8 px-4 text-center">
 								<div className="flex items-center justify-center w-12 h-12 rounded-full bg-muted/50 mb-3">
-									<Sparkles className="size-5 text-muted-foreground/50" />
+									<QuestionMarkIcon size={20} className="text-muted-foreground/50" />
 								</div>
 								<span className="text-xs font-medium text-muted-foreground/70 leading-relaxed">
 									{emptyMessage}
