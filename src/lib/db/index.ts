@@ -28,6 +28,13 @@ export interface UnreadCount {
 	count: number;
 }
 
+/** Encryption key storage (for password protection in session storage) */
+export interface EncryptionKey {
+	id: string;
+	key: CryptoKey;
+	createdAt: number;
+}
+
 // ============================================
 // Database
 // ============================================
@@ -38,6 +45,7 @@ class SipherDB extends Dexie {
 	channels!: EntityTable<SiPher.Channel, "id">;
 	messages!: EntityTable<SiPher.Messages.ClientEncrypted.EncryptedMessage, "id">;
 	unreadCounts!: EntityTable<UnreadCount, "channelId">;
+	encryptionKeys!: EntityTable<EncryptionKey, "id">;
 
 	constructor() {
 		super("SipherDB");
@@ -48,6 +56,7 @@ class SipherDB extends Dexie {
 			channels: "id, *participants, type, lastMessageAt, createdAt",
 			messages: "id, channelId, fromUserId, timestamp, status",
 			unreadCounts: "channelId",
+			encryptionKeys: "id, createdAt",
 		});
 	}
 }

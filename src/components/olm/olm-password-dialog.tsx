@@ -1,5 +1,5 @@
 import { useOlmContext } from "@/contexts/olm-context";
-import { Info, KeyRound, ShieldCheck } from "lucide-react";
+import { AlertCircle, Info, KeyRound, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -8,20 +8,29 @@ import { Input } from "../ui/input";
 export default function OlmPasswordDialog({ userId }: { userId: string }) {
 	const [needsPassword, setNeedsPassword] = useState(false);
 	const [password, setPasswordInput] = useState("");
-	const { setPassword } = useOlmContext();
+
+	const { setPassword, passwordError, clearPasswordError } = useOlmContext();
 
 	useEffect(() => {
-		// Get the password from the session storage
-		const password = sessionStorage.getItem(`olm_password_${userId}`);
-		console.log("🔒 Password from session storage:", password);
-		if (!password) {
+		// The context handles loading & decrypting the password from sessionStorage.
+		// We only need to show the dialog if the context doesn't have a password.
+		// This will be handled by the passwordError effect below.
+		// For initial load, we check if there's encrypted data - if not, show dialog.
+		const hasStoredPassword = sessionStorage.getItem(`olm_password_${userId}`);
+		if (!hasStoredPassword) {
 			setNeedsPassword(true);
-			return;
 		}
-
-		setPassword(password);
-		setNeedsPassword(false);
+		// If there IS stored data, the context will decrypt it and load it.
+		// If decryption fails or password is wrong, passwordError will be set.
 	}, [userId]);
+
+	// Show dialog when there's a password error (wrong password was entered)
+	useEffect(() => {
+		if (passwordError) {
+			setNeedsPassword(true);
+			setPasswordInput(""); // Clear the input for retry
+		}
+	}, [passwordError]);
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -55,24 +64,37 @@ export default function OlmPasswordDialog({ userId }: { userId: string }) {
 						<Input
 							type="password"
 							placeholder="Enter your encryption password"
-							className="h-11 text-center"
+							className={`h-11 text-center ${passwordError ? "border-destructive focus-visible:ring-destructive" : ""}`}
 							autoFocus
 							value={password}
-							onChange={(e) => setPasswordInput(e.target.value)}
+							onChange={(e) => {
+								setPasswordInput(e.target.value);
+								if (passwordError) clearPasswordError();
+							}}
 						/>
-						<div className="space-y-2">
-							<div className="flex items-center gap-2 rounded-md bg-emerald-500/10 dark:bg-emerald-400/10 px-3 py-2.5 text-emerald-700 dark:text-emerald-300 border border-emerald-200/20 dark:border-emerald-500/20">
-								<ShieldCheck className="h-4 w-4 shrink-0" />
+						{passwordError && (
+							<div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-destructive border border-destructive/20">
+								<AlertCircle className="h-4 w-4 shrink-0" />
 								<p className="text-xs leading-relaxed">
-									Your password is stored locally and never sent to our servers.
+									{passwordError}
 								</p>
 							</div>
-							<div className="flex items-center gap-2 rounded-md bg-blue-500/10 dark:bg-blue-400/10 px-3 py-2.5 text-blue-700 dark:text-blue-300 border border-blue-200/20 dark:border-blue-500/20">
+						)}
+						<div className="space-y-2">
+							<div className="flex items-center gap-2 rounded-md bg-chart-3/10 px-3 py-2.5 text-chart-3 border border-chart-3/20">
 								<Info className="h-4 w-4 shrink-0" />
 								<p className="text-xs leading-relaxed">
 									You'll be asked to re-enter this password each time you start a new browser session.
+									<br />
+									When continuing, the window will be reloaded, please do not close the window or refresh the page by yourself.
 								</p>
 							</div>
+						</div>
+						<div className="flex items-center gap-2 rounded-md bg-chart-2/10 px-3 py-2.5 text-chart-2 border border-chart-2/20">
+							<ShieldCheck className="h-4 w-4 shrink-0" />
+							<p className="text-xs leading-relaxed">
+								Your password is encrypted before being stored in your browser's session storage using a secure key that cannot be exported.
+							</p>
 						</div>
 					</div>
 

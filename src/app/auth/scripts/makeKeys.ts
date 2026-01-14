@@ -1,21 +1,58 @@
 import { db } from "@/lib/db";
 
+// Track OLM initialization state
+let olmInitPromise: Promise<any> | null = null;
+
 // Load OLM via script tag to bypass bundler entirely
 export async function loadOlm() {
 	if (typeof window === "undefined") throw new Error("OLM requires browser");
-	if ((window as any).Olm) return (window as any).Olm;
 
-	return new Promise((resolve, reject) => {
+	// If already initialized, return cached Olm
+	if ((window as any).__olmInitialized && (window as any).Olm) {
+		console.debug("[makeKeysOnSignUp]: OLM already initialized");
+		return (window as any).Olm;
+	}
+
+	// If initialization is in progress, wait for it
+	if (olmInitPromise) {
+		console.debug("[makeKeysOnSignUp]: OLM initialization in progress, waiting for it");
+		return olmInitPromise;
+	}
+
+	// Start initialization
+	olmInitPromise = new Promise((resolve, reject) => {
+		// Check if script already loaded but not initialized
+		if ((window as any).Olm) {
+			const Olm = (window as any).Olm;
+			Olm.init({ locateFile: () => "/olm.wasm" })
+				.then(() => {
+					(window as any).__olmInitialized = true;
+					resolve(Olm);
+				})
+				.catch(reject);
+			return;
+		}
+
 		const script = document.createElement("script");
 		script.src = "/olm.js";
 		script.onload = async () => {
-			const Olm = (window as any).Olm;
-			await Olm.init({ locateFile: () => "/olm.wasm" });
-			resolve(Olm);
+			try {
+				const Olm = (window as any).Olm;
+				await Olm.init({ locateFile: () => "/olm.wasm" });
+				(window as any).__olmInitialized = true;
+				resolve(Olm);
+			} catch (err) {
+				reject(err);
+			}
 		};
-		script.onerror = () => reject(new Error("Failed to load OLM"));
+		script.onerror = (err) => {
+			console.error("[makeKeysOnSignUp]: Failed to load OLM: ", err);
+			reject(new Error(`Failed to load OLM: ${err}`));
+		};
 		document.head.appendChild(script);
 	});
+
+	return olmInitPromise;
 }
 
 type SendKeysToServerFn = (args: {
@@ -64,8 +101,8 @@ export default async function makeKeysOnSignUp(
 
 	const pickledAccount = account.pickle(localPassword);
 
-	// Store password in sessionStorage for unpickling later
-	sessionStorage.setItem(`olm_password_${odId}`, localPassword);
+	// Note: Password storage is handled by the OlmContext with encryption
+	// Do NOT store plain text password here
 
 	// Cache the account in window
 	if (!(window as any).olmAccountCache) {

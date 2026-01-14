@@ -1,6 +1,7 @@
 "use client"
 
 import { loadOlm } from "@/app/auth/scripts/makeKeys";
+import { decryptPassword, encryptPassword, getOrCreatePasswordEncryptionKey } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { checkOlmStatus, getOlmAccount, handleOlmAccountCreation, SendKeysToServerFn } from "@/lib/olm";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -25,10 +26,12 @@ interface OlmContextValue {
 
 	// Password & setup
 	password: string | null;
+	passwordError: string | null;
 	showOlmModal: boolean;
 	setShowOlmModal: (show: boolean) => void;
 	handleCreateAccount: (password: string) => Promise<void>;
 	setPassword: (password: string) => void;
+	clearPasswordError: () => void;
 }
 
 const OlmContext = createContext<OlmContextValue | null>(null);
@@ -55,13 +58,33 @@ export function OlmProvider({
 	const [olmAccount, setOlmAccount] = useState<Olm.Account | null>(null);
 	const [olmStatus, setOlmStatus] = useState<SiPher.OlmStatus>("checking");
 	const [password, setPasswordState] = useState<string | null>(null);
+	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [showOlmModal, setShowOlmModal] = useState(false);
 
 	// Cache sessions in memory: recipientId -> Session
 	const sessionsRef = useRef<Map<string, Olm.Session>>(new Map());
 	// Track pending session creation to prevent race conditions
 	const pendingSessionsRef = useRef<Map<string, Promise<Olm.Session | null>>>(new Map());
+	// Encryption key for secure password storage (persisted in IndexedDB)
+	const encryptionKeyRef = useRef<CryptoKey | null>(null);
+	const [encryptionKeyReady, setEncryptionKeyReady] = useState(false);
+	// Track if password was set manually (to prevent load-from-storage race condition)
+	const passwordSetManuallyRef = useRef(false);
+	// Track if we're currently loading the OLM account (prevent duplicate loads)
+	const isLoadingAccountRef = useRef(false);
 	const [, forceUpdate] = useState({});
+
+	// Initialize encryption key on mount
+	useEffect(() => {
+		getOrCreatePasswordEncryptionKey()
+			.then((key) => {
+				encryptionKeyRef.current = key;
+				setEncryptionKeyReady(true);
+			})
+			.catch((err) => {
+				console.error("[OlmContext]: Failed to initialize encryption key:", err);
+			});
+	}, []);
 
 	// Helper: Cache session in memory
 	const cacheSession = useCallback((recipientId: string, session: Olm.Session) => {
@@ -137,18 +160,34 @@ export function OlmProvider({
 	// Helper: Clear password from state and storage
 	const clearPassword = useCallback(() => {
 		if (!userId) return;
+		passwordSetManuallyRef.current = false;
 		setPasswordState(null);
 		sessionStorage.removeItem(getPasswordStorageKey(userId));
 	}, [userId, getPasswordStorageKey]);
 
-	// Load password from sessionStorage on mount
+	// Load and decrypt password from sessionStorage on mount
 	useEffect(() => {
-		if (!userId) return;
-		const stored = sessionStorage.getItem(getPasswordStorageKey(userId));
-		if (stored) {
-			setPasswordState(stored);
-		}
-	}, [userId, getPasswordStorageKey]);
+		if (!userId || !encryptionKeyReady || !encryptionKeyRef.current) return;
+		// Skip if password was set manually (prevents race condition loop)
+		if (passwordSetManuallyRef.current) return;
+
+		const loadStoredPassword = async () => {
+			const stored = sessionStorage.getItem(getPasswordStorageKey(userId));
+			if (!stored) return;
+
+			const decrypted = await decryptPassword(stored, encryptionKeyRef.current!);
+			if (decrypted) {
+				setPasswordState(decrypted);
+				console.debug("[OlmContext]: Password loaded and decrypted from storage");
+			} else {
+				// Decryption failed - clear stale data
+				sessionStorage.removeItem(getPasswordStorageKey(userId));
+				console.debug("[OlmContext]: Cleared stale encrypted password");
+			}
+		};
+
+		loadStoredPassword();
+	}, [userId, getPasswordStorageKey, encryptionKeyReady]);
 
 	// Check OLM status when user data and server status are available
 	useEffect(() => {
@@ -169,34 +208,70 @@ export function OlmProvider({
 	// Load and unpickle the OLM account when password is available
 	useEffect(() => {
 		if (!userId || !password) return;
+		// Prevent duplicate loads
+		if (isLoadingAccountRef.current) {
+			console.debug("[OlmContext]: Already loading account, skipping...");
+			return;
+		}
 
 		const loadAccount = async () => {
+			isLoadingAccountRef.current = true;
 			try {
 				console.debug("[OlmContext]: Loading OLM account...");
 				const account = await getOlmAccount(userId, password);
 				if (!account) {
 					console.warn("[OlmContext]: No OLM account found");
+					isLoadingAccountRef.current = false;
 					return;
 				}
 
 				setOlmAccount(account);
+				setPasswordError(null);
 				console.debug("[OlmContext]: OLM account loaded successfully");
 			} catch (err) {
 				console.error("[OlmContext]: Failed to load OLM account:", err);
-				// Password might be wrong - clear it
+				// Password is wrong - clear it and set error
+				setPasswordError("Incorrect encryption password. Please try again.");
 				clearPassword();
+			} finally {
+				isLoadingAccountRef.current = false;
 			}
 		};
 
 		loadAccount();
 	}, [userId, password, clearPassword]);
 
-	// Set password and store in sessionStorage
+	// Clear password error
+	const clearPasswordError = useCallback(() => {
+		setPasswordError(null);
+	}, []);
+
+	// Set password and store encrypted in sessionStorage
 	const setPassword = useCallback((newPassword: string) => {
 		if (!userId) return;
 
-		sessionStorage.setItem(getPasswordStorageKey(userId), newPassword);
+		// Mark as manually set to prevent load-from-storage race condition
+		passwordSetManuallyRef.current = true;
+		setPasswordError(null);
 		setPasswordState(newPassword);
+
+		// Encrypt and store asynchronously
+		if (encryptionKeyRef.current) {
+			encryptPassword(newPassword, encryptionKeyRef.current)
+				.then((encrypted) => {
+					// Only store if the password hasn't been cleared since we started
+					// This prevents the race condition where clearPassword runs before this .then()
+					if (passwordSetManuallyRef.current) {
+						sessionStorage.setItem(getPasswordStorageKey(userId), encrypted);
+						console.debug("[OlmContext]: Password encrypted and stored");
+					} else {
+						console.debug("[OlmContext]: Skipped storing password (was cleared)");
+					}
+				})
+				.catch((err) => {
+					console.error("[OlmContext]: Failed to encrypt password:", err);
+				});
+		}
 	}, [userId, getPasswordStorageKey]);
 
 	// Handle OLM account creation
@@ -325,6 +400,8 @@ export function OlmProvider({
 		senderId: string,
 		preKeyMessage: string
 	): Promise<Olm.Session | null> => {
+		console.debug("[OlmContext]: Args passed to createInboundSession", { senderId, preKeyMessage });
+
 		if (!validateSessionRequirements()) {
 			return null;
 		}
@@ -338,8 +415,8 @@ export function OlmProvider({
 		try {
 			console.debug(`[OlmContext]: Creating inbound session from sender ${senderId}`);
 
-			const Olm = await loadOlm();
-			const newSession = new Olm.Session();
+			const Olm: typeof import("@matrix-org/olm") = await loadOlm();
+			const newSession: Olm.Session = new Olm.Session();
 
 			// Create inbound session from the pre-key message
 			newSession.create_inbound(olmAccount!, preKeyMessage);
@@ -374,10 +451,12 @@ export function OlmProvider({
 		createInboundSession,
 		sessions: sessionsRef.current,
 		password,
+		passwordError,
 		showOlmModal,
 		setShowOlmModal,
 		handleCreateAccount,
 		setPassword,
+		clearPasswordError,
 	};
 
 	return (

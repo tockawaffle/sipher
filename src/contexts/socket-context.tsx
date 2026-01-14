@@ -155,6 +155,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 	const processIncomingDM = useCallback(
 		async (data: { content: { type: 0 | 1; body: unknown }, participants: string[] }) => {
 			// Get the current user id
+			console.debug("[Socket]: Processing incoming DM", data);
 			const currentUserId = user.id;
 			if (!currentUserId) {
 				console.error("[Socket]: No user ID available");

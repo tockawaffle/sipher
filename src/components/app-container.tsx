@@ -112,6 +112,7 @@ export default function AppContainer() {
 		api.auth.retrieveServerOlmAccount,
 		data?.user?.id ? { userId: data.user.id } : "skip"
 	);
+
 	const sendKeysToServer = useMutation(api.auth.sendKeysToServer);
 	const consumeOTK = useMutation(api.auth.consumeOTK);
 

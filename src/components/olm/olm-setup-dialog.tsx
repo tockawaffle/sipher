@@ -31,7 +31,7 @@ export default function OlmSetupDialog({
 	const handleSubmit = async () => {
 		if (!localPassword.trim()) return;
 		await onCreateAccount(localPassword);
-		setLocalPassword(""); // Clear password after attempt
+		setLocalPassword("");
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
