@@ -1,3 +1,4 @@
+import { AutoRequestNotifications } from "@/components/notifications/NotificationSettings";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { getToken } from "@/lib/auth/auth-server";
@@ -49,6 +50,7 @@ export default async function RootLayout({
 						disableTransitionOnChange
 					>
 						{children}
+						<AutoRequestNotifications />
 					</ThemeProvider>
 					<Toaster richColors />
 				</ConvexClientProvider>

@@ -122,12 +122,30 @@ export const retrieveServerOlmAccount = query({
 export const updateUserStatus = mutation({
 	args: {
 		status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
-		isUserSet: v.boolean(),
+		isUserSet: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		return ctx.runMutation(components.betterAuth.user.index.updateUserStatus, {
 			status: args.status,
 			isUserSet: args.isUserSet,
+		});
+	},
+});
+
+export const getNonOfflineUserIds = query({
+	args: {},
+	handler: async (ctx) => {
+		return ctx.runQuery(components.betterAuth.user.index.getNonOfflineUserIds, {});
+	},
+});
+
+export const forceUserOffline = mutation({
+	args: {
+		userId: v.string(),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runMutation(components.betterAuth.user.index.forceUserOffline, {
+			userId: args.userId,
 		});
 	},
 });
@@ -211,5 +229,28 @@ export const consumeOTK = mutation({
 			userId: args.userId,
 			keyId: args.keyId,
 		});
+	},
+});
+
+export const getKeyVersion = query({
+	args: {
+		userId: v.string(),
+	},
+	handler: async (ctx, args) => {
+		return ctx.runQuery(components.betterAuth.olm.index.getKeyVersion, {
+			userId: args.userId,
+		});
+	},
+});
+
+export const migrateOlmAccounts = mutation({
+	handler: async (ctx) => {
+		return ctx.runMutation(components.betterAuth.olm.index.migrateOlmAccounts, {});
+	},
+});
+
+export const getUserNests = query({
+	handler: async (ctx) => {
+		return ctx.runQuery(components.betterAuth.nests.locals.getUserNests);
 	},
 });

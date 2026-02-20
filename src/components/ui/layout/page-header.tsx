@@ -6,7 +6,7 @@ import UserCard from "../user/user-card"
 
 export interface PageHeaderProps {
 	currentChannel: SiPher.Channel | null
-	page: "friends" | "support" | "dm" | "server"
+	page: SiPher.PageTypes
 	friendsPage?: "all" | "available"
 	onFriendsPageChange?: (page: "all" | "available") => void
 	onAddFriend?: () => void

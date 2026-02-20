@@ -134,6 +134,9 @@ declare global {
 					keyId: string
 					publicKey: string
 				}>
+				createdAt: number
+				updatedAt: number
+				keyVersion: number
 			} | null
 		}
 	}

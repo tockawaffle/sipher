@@ -74,7 +74,7 @@ const dmEvent: SiPher.EventsType = {
 
 		io.to(to).emit("dm:new", dmData);
 
-		console.log(`[DM] ${sender.id} → ${to} in room ${roomId}`);
+		console.log(`[DM] ${sender.id} → ${to} in room ${roomId}: ${message.body}`);
 	},
 };
 

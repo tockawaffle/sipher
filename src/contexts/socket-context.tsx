@@ -1,6 +1,7 @@
 "use client"
 
-import { db, getOrCreateDmChannel, incrementUnread, storeMessage } from "@/lib/db";
+import { db, getOrCreateDmChannel, storeMessage } from "@/lib/db";
+import { isChannelActive, showMessageNotification } from "@/lib/notifications";
 import { convex } from "@/lib/providers/Convex";
 import { useMutation } from "convex/react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -96,7 +97,8 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		messageType: 0 | 1,
 		encryptedBody: string,
 		currentUserId: string,
-		fromUserId: string
+		fromUserId: string,
+		senderDetails?: { name: string; image?: string }
 	) => {
 		// Decrypt the message
 		const decryptedBody = session.decrypt(messageType, encryptedBody);
@@ -113,9 +115,30 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			throw new Error("Invalid message format");
 		}
 
-		// Store message and increment unread count
-		await storeMessage(validatedMessage.data as SiPher.Messages.ClientEncrypted.EncryptedMessage & { to: string });
-		await incrementUnread(validatedMessage.data.channelId);
+		const channelId = validatedMessage.data.channelId;
+		const isActive = isChannelActive(channelId);
+
+		// Store message, skip unread increment if channel is active
+		await storeMessage(
+			validatedMessage.data as SiPher.Messages.ClientEncrypted.EncryptedMessage & { to: string },
+			{ skipUnreadIncrement: isActive }
+		);
+
+		// Show browser notification if channel is not active
+		if (!isActive && senderDetails) {
+			showMessageNotification({
+				senderName: senderDetails.name,
+				senderImage: senderDetails.image,
+				messagePreview: validatedMessage.data.content,
+				channelId: channelId,
+				userStatus: userStatusRef.current.status, // Pass current user's status
+				onClick: () => {
+					// Could navigate to the channel here if needed
+					window.location.href = `/channels/me/${channelId}`;
+				},
+			});
+		}
+
 		console.debug("[Socket]: Message stored successfully");
 	}, [saveSessionState]);
 
@@ -169,7 +192,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 				return;
 			}
 
-			// Fetch participant details
+			// Fetch participant details including OLM account with key version
 			try {
 				const participantDetails = await convex.query(api.auth.getParticipantDetails, {
 					participantIds: [fromUserId]
@@ -183,11 +206,23 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 
 				const { type, body } = data.content;
 
+				// Prepare sender details for notifications
+				const senderDetails = {
+					name: fromUser.displayUsername || fromUser.username || fromUser.name,
+					image: fromUser.image || undefined,
+				};
+
 				switch (type) {
 					case 0: {
 						console.debug("[Socket]: Received inbound message from pre-key message");
 
-						const session = await createInboundSession(fromUserId, body as string);
+						// Create inbound session with sender's key metadata
+						const session = await createInboundSession(
+							fromUserId,
+							body as string,
+							fromUser.olmAccount?.keyVersion,
+							fromUser.olmAccount?.identityKey
+						);
 						if (!session) {
 							console.error("[Socket]: Failed to create inbound session");
 							return;
@@ -197,7 +232,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 						await getOrCreateDmChannel(currentUserId, fromUser);
 
 						// Decrypt, validate, and store using helper
-						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
+						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId, senderDetails);
 						break;
 					}
 					case 1: {
@@ -211,7 +246,7 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 						}
 
 						// Decrypt, validate, and store using helper
-						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId);
+						await decryptAndStoreMessage(session, type, body as string, currentUserId, fromUserId, senderDetails);
 						break;
 					}
 				}
@@ -222,25 +257,41 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 
 	// Process queued messages when OLM becomes ready
 	useEffect(() => {
-		if (!olmAccount || !olmIsReady || messageQueueRef.current.length === 0) return;
+		if (!olmAccount || !olmIsReady) {
+			if (messageQueueRef.current.length > 0) {
+				console.log(`[Socket - processQueue]: Waiting for OLM... ${messageQueueRef.current.length} messages queued`);
+			}
+			return;
+		}
 
-		console.log(`[Socket - processQueue]: OLM is now ready, processing ${messageQueueRef.current.length} queued messages`);
+		if (messageQueueRef.current.length === 0) return;
+
+		console.log(`[Socket - processQueue]: ========================================`);
+		console.log(`[Socket - processQueue]: OLM is now ready!`);
+		console.log(`[Socket - processQueue]: Processing ${messageQueueRef.current.length} queued messages`);
+		console.log(`[Socket - processQueue]: ========================================`);
 
 		const processQueue = async () => {
 			const queue = [...messageQueueRef.current];
 			messageQueueRef.current = []; // Clear queue
 
-			for (const data of queue) {
-				console.log("[Socket - processQueue]: Processing queued message:", data);
-				await processIncomingDM(data);
+			for (let i = 0; i < queue.length; i++) {
+				console.log(`[Socket - processQueue]: Processing queued message ${i + 1}/${queue.length}`);
+				await processIncomingDM(queue[i]);
 			}
+			console.log(`[Socket - processQueue]: All queued messages processed!`);
 		};
 
 		processQueue();
 	}, [olmAccount, olmIsReady, processIncomingDM]);
 
 	useEffect(() => {
-		if (!user.id) return;
+		if (!user.id) {
+			console.warn("[Socket]: No user ID, not connecting socket");
+			return;
+		}
+
+		console.log("[Socket]: Initializing socket connection for user:", user.id);
 
 		const socket: Socket = io({
 			withCredentials: true,
@@ -301,7 +352,13 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		}
 
 		socket.on("connect", () => {
-			console.log("[Socket - connect]: Connected to socket - Authentication successful!");
+			console.log("[Socket - connect]: ========================================");
+			console.log("[Socket - connect]: Connected to socket server!");
+			console.log("[Socket - connect]: Socket ID:", socket.id);
+			console.log("[Socket - connect]: User ID:", user.id);
+			console.log("[Socket - connect]: Transport:", socket.io.engine?.transport?.name);
+			console.log("[Socket - connect]: ========================================");
+
 			setSocketStatus("connected");
 			updateSocketInfo({
 				connectedAt: Date.now(),
@@ -370,7 +427,11 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 		});
 
 		socket.on("dm:new", async (data: { content: { type: 0 | 1; body: unknown }, participants: string[] }) => {
-			console.log("[Socket - dm:new]: New DM received:", data);
+			console.log("[Socket - dm:new]: New DM received");
+			console.log("[Socket - dm:new]: Message type:", data.content.type);
+			console.log("[Socket - dm:new]: Participants:", data.participants);
+			console.log("[Socket - dm:new]: OLM account ready:", !!olmAccount);
+			console.log("[Socket - dm:new]: User ID:", user.id);
 
 			// Check if OLM account is loaded
 			if (!olmAccount) {
@@ -380,8 +441,9 @@ export function SocketProvider({ children, user, refetchUser }: SocketProviderPr
 			}
 
 			// Process immediately if OLM is ready
-			console.debug("[Socket]: Processing incoming DM immediately:", data);
+			console.log("[Socket]: Processing incoming DM immediately");
 			await processIncomingDM(data);
+			console.log("[Socket]: Finished processing incoming DM");
 		});
 
 		return () => {

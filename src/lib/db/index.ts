@@ -20,6 +20,8 @@ export interface OlmSession {
 	pickledSession: string; // Serialized Olm.Session
 	createdAt: number;
 	updatedAt: number;
+	recipientKeyVersion?: number; // Track recipient's key version
+	recipientIdentityKey?: { curve25519: string; ed25519: string }; // Track recipient's identity key
 }
 
 /** Unread count per channel */
@@ -121,15 +123,92 @@ export async function getChannelMessages(
 	return query.reverse().sortBy("timestamp").then((msgs) => msgs.slice(0, limit));
 }
 
+/** Validate session keys match recipient's current keys */
+export async function validateSessionKeys(
+	recipientId: string,
+	currentKeyVersion: number,
+	currentIdentityKey: { curve25519: string; ed25519: string }
+): Promise<boolean> {
+	console.debug(`[DB] Validating session keys for ${recipientId}`, {
+		currentKeyVersion,
+		currentIdentityKey
+	});
+
+	const sessions = await db.olmSessions
+		.where("recipientId")
+		.equals(recipientId)
+		.toArray();
+
+	console.debug(`[DB] Found ${sessions.length} existing sessions for ${recipientId}`);
+
+	if (sessions.length === 0) {
+		console.debug(`[DB] No existing session - validation passes`);
+		return true; // No session yet, validation passes
+	}
+
+	const session = sessions[0];
+	console.debug(`[DB] Existing session metadata:`, {
+		recipientKeyVersion: session.recipientKeyVersion,
+		recipientIdentityKey: session.recipientIdentityKey
+	});
+
+	// Check if key version has changed
+	if (session.recipientKeyVersion !== undefined && session.recipientKeyVersion !== currentKeyVersion) {
+		console.warn(`[DB] Key version mismatch for ${recipientId}: local=${session.recipientKeyVersion}, server=${currentKeyVersion}`);
+		return false;
+	}
+
+	// Check if identity key has changed
+	if (session.recipientIdentityKey) {
+		if (session.recipientIdentityKey.curve25519 !== currentIdentityKey.curve25519 ||
+			session.recipientIdentityKey.ed25519 !== currentIdentityKey.ed25519) {
+			console.warn(`[DB] Identity key mismatch for ${recipientId}`);
+			console.warn(`[DB] Local curve25519: ${session.recipientIdentityKey.curve25519}`);
+			console.warn(`[DB] Server curve25519: ${currentIdentityKey.curve25519}`);
+			console.warn(`[DB] Local ed25519: ${session.recipientIdentityKey.ed25519}`);
+			console.warn(`[DB] Server ed25519: ${currentIdentityKey.ed25519}`);
+			return false;
+		}
+	}
+
+	console.debug(`[DB] Key validation passed for ${recipientId}`);
+	return true;
+}
+
+/** Invalidate and remove session for a recipient */
+export async function invalidateSession(userId: string, recipientId: string): Promise<void> {
+	await db.olmSessions
+		.where("[odId+recipientId]")
+		.equals([userId, recipientId])
+		.delete();
+	console.log(`[DB] Invalidated session for ${recipientId}`);
+}
+
 /** Add a message to local storage */
 export async function sendMessage(
 	message: Omit<SiPher.Messages.ClientEncrypted.EncryptedMessage, "id"> & { to: string },
 	olmSession: Olm.Session,
 	sendMessage: (message: { type: 0 | 1; body: string }, to: string) => void,
-	saveSession?: { userId: string; recipientId: string; password: string }
+	saveSession?: {
+		userId: string;
+		recipientId: string;
+		password: string;
+		recipientKeyVersion?: number;
+		recipientIdentityKey?: { curve25519: string; ed25519: string };
+	}
 ): Promise<string> {
+	console.log("[DB] sendMessage called", {
+		channelId: message.channelId,
+		to: message.to,
+		hasSession: !!olmSession,
+		hasSaveSession: !!saveSession
+	});
+
 	const id = crypto.randomUUID();
+	console.log("[DB] Generated message ID:", id);
+
 	await db.messages.add({ ...message, id });
+	console.log("[DB] Message added to local DB");
 
 	// Update channel's lastMessageAt
 	await db.channels.where("id").equals(message.channelId).modify((channel) => {
@@ -137,8 +216,10 @@ export async function sendMessage(
 		channel.times.lastMessageAt = message.timestamp;
 		channel.times.updatedAt = Date.now();
 	});
+	console.log("[DB] Channel updated with last message");
 
 	// Encrypt the message
+	console.log("[DB] Encrypting message...");
 	const encrypted = olmSession.encrypt(
 		JSON.stringify({
 			id,
@@ -148,29 +229,49 @@ export async function sendMessage(
 			status: message.status,
 			content: message.content,
 		} satisfies SiPher.Messages.ClientEncrypted.EncryptedMessage)
-	)
+	);
+	console.log("[DB] Message encrypted, type:", encrypted.type);
 
 	// CRITICAL: Save the updated session after encrypt (ratchet has advanced)
 	if (saveSession) {
+		console.log("[DB] Saving session state...", {
+			recipientKeyVersion: saveSession.recipientKeyVersion,
+			hasIdentityKey: !!saveSession.recipientIdentityKey
+		});
+
+		const updateData: Partial<OlmSession> = {
+			pickledSession: olmSession.pickle(saveSession.password),
+			updatedAt: Date.now(),
+		};
+
+		// Update key version and identity key if provided
+		if (saveSession.recipientKeyVersion !== undefined) {
+			updateData.recipientKeyVersion = saveSession.recipientKeyVersion;
+		}
+		if (saveSession.recipientIdentityKey) {
+			updateData.recipientIdentityKey = saveSession.recipientIdentityKey;
+		}
+
 		await db.olmSessions
 			.where("[odId+recipientId]")
 			.equals([saveSession.userId, saveSession.recipientId])
-			.modify({
-				pickledSession: olmSession.pickle(saveSession.password),
-				updatedAt: Date.now(),
-			});
-		console.debug("[DB] Session state saved after encrypt");
+			.modify(updateData);
+		console.log("[DB] Session state saved after encrypt with keyVersion:", saveSession.recipientKeyVersion);
 	}
 
 	// Send the message using the socket
+	console.log("[DB] Sending message via socket to:", message.to);
 	sendMessage(encrypted, message.to);
+	console.log("[DB] Message sent via socket");
 
 	return id;
 }
 
 export async function storeMessage(
-	message: SiPher.Messages.ClientEncrypted.EncryptedMessage
-		& { to: string }
+	message: SiPher.Messages.ClientEncrypted.EncryptedMessage & { to: string },
+	options?: {
+		skipUnreadIncrement?: boolean; // Skip incrementing if user is viewing the channel
+	}
 ): Promise<void> {
 	await db.messages.add(message);
 	await db.channels.where("id").equals(message.channelId).modify((channel) => {
@@ -178,7 +279,11 @@ export async function storeMessage(
 		channel.times.lastMessageAt = message.timestamp;
 		channel.times.updatedAt = Date.now();
 	});
-	await incrementUnread(message.channelId);
+
+	// Only increment unread if not explicitly skipped
+	if (!options?.skipUnreadIncrement) {
+		await incrementUnread(message.channelId);
+	}
 }
 
 /** Increment unread count for a channel */

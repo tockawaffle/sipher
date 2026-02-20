@@ -10,8 +10,9 @@ import {
 	SidebarMenuItem,
 	SidebarProvider
 } from "@/components/ui/sidebar";
-import { CompassIcon, HouseIcon } from "@phosphor-icons/react";
+import { CompassIcon, GlobeIcon, HouseIcon } from "@phosphor-icons/react";
 import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Separator } from "../ui/separator";
@@ -20,9 +21,16 @@ import SidebarIcon from "./sicons";
 
 const SidebarItems: SiPher.SidebarItem[] = [
 	{
+		id: "global-nests",
+		icon: <GlobeIcon className="size-5" weight="fill" />,
+		label: "Global Nest",
+		href: "/channels/nests/global"
+	},
+	{
 		id: "discover",
 		icon: <CompassIcon className="size-5" weight="fill" />,
-		label: "Discover"
+		label: "Discover",
+		href: "/discover"
 	}
 ];
 
@@ -31,8 +39,9 @@ const SidebarItems: SiPher.SidebarItem[] = [
  * It also is the controller for everything on the app, including going to other pages, showing conversations and other.
  * @param children - The children to be rendered in the sidebar inset
  */
-export default function AppSidebar({ children, socketStatus, socketInfo, currentChannel, disconnectSocket, connectSocket }: SiPher.AppSidebarProps) {
+export default function AppSidebar({ children, socketStatus, socketInfo, currentChannel, disconnectSocket, connectSocket, routeInfo }: SiPher.AppSidebarProps) {
 	const [activeItem, setActiveItem] = useState<string>("home");
+	const router = useRouter();
 
 	return (
 		<SidebarProvider
@@ -61,9 +70,13 @@ export default function AppSidebar({ children, socketStatus, socketInfo, current
 				<SidebarContent className="pt-2 px-0 overflow-hidden">
 					<SidebarMenu className="gap-2">
 						{SidebarItems.map((item) => (
-							<SidebarMenuItem key={item.id}>
+							<SidebarMenuItem key={item.id} onClick={() => {
+								if (item.href) {
+									router.push(item.href);
+								}
+							}}>
 								<SidebarIcon
-									isActive={activeItem === item.id}
+									isActive={activeItem === item.id && routeInfo.type === item.id}
 									label={item.label}
 									onClick={() => setActiveItem(item.id)}
 								>

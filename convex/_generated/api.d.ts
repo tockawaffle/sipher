@@ -67,6 +67,7 @@ export declare const components: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name: string;
+                  nests?: Array<string>;
                   updatedAt: number;
                   userId?: null | string;
                   username?: null | string;
@@ -75,10 +76,14 @@ export declare const components: {
               }
             | {
                 data: {
-                  isUserSet: boolean;
                   status: "online" | "busy" | "offline" | "away";
                   updatedAt: number;
                   userId: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 model: "userStatus";
               }
@@ -99,6 +104,63 @@ export declare const components: {
             | {
                 data: { createdAt: number; friendId: string; userId: string };
                 model: "friends";
+              }
+            | {
+                data: {
+                  channels: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt: number;
+                  description?: string;
+                  emojis: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId: string;
+                  members: Array<string>;
+                  name: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles: Array<string>;
+                  type: "global" | "regional" | "private";
+                  updatedAt: number;
+                };
+                model: "nests";
+              }
+            | {
+                data: {
+                  color?: string;
+                  createdAt: number;
+                  flags: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members: Array<string>;
+                  mentionable?: boolean;
+                  name: string;
+                  nestId: string;
+                  permissions: Array<bigint>;
+                  position?: number;
+                  updatedAt: number;
+                };
+                model: "roles";
+              }
+            | {
+                data: {
+                  createdAt: number;
+                  name: string;
+                  nestId: string;
+                  overwrites: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions: Array<bigint>;
+                  position: number;
+                  type: "text" | "category" | "announcement";
+                  updatedAt: number;
+                };
+                model: "channels";
               }
             | {
                 data: {
@@ -182,8 +244,11 @@ export declare const components: {
               }
             | {
                 data: {
+                  createdAt?: number;
                   identityKey: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId: string;
                 };
                 model: "olmAccount";
@@ -213,6 +278,7 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -242,7 +308,7 @@ export declare const components: {
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -307,6 +373,121 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -540,7 +721,14 @@ export declare const components: {
                 model: "olmAccount";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -594,6 +782,7 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -623,7 +812,7 @@ export declare const components: {
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -688,6 +877,121 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -921,7 +1225,14 @@ export declare const components: {
                 model: "olmAccount";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -958,6 +1269,9 @@ export declare const components: {
             | "userStatus"
             | "friendRequests"
             | "friends"
+            | "nests"
+            | "roles"
+            | "channels"
             | "messages"
             | "attachments"
             | "session"
@@ -1011,6 +1325,9 @@ export declare const components: {
             | "userStatus"
             | "friendRequests"
             | "friends"
+            | "nests"
+            | "roles"
+            | "channels"
             | "messages"
             | "attachments"
             | "session"
@@ -1062,6 +1379,7 @@ export declare const components: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
+                  nests?: Array<string>;
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -1079,6 +1397,7 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1104,17 +1423,21 @@ export declare const components: {
             | {
                 model: "userStatus";
                 update: {
-                  isUserSet?: boolean;
                   status?: "online" | "busy" | "offline" | "away";
                   updatedAt?: number;
                   userId?: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -1195,6 +1518,169 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                update: {
+                  channels?: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt?: number;
+                  description?: string;
+                  emojis?: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId?: string;
+                  members?: Array<string>;
+                  name?: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles?: Array<string>;
+                  type?: "global" | "regional" | "private";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                update: {
+                  color?: string;
+                  createdAt?: number;
+                  flags?: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members?: Array<string>;
+                  mentionable?: boolean;
+                  name?: string;
+                  nestId?: string;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                update: {
+                  createdAt?: number;
+                  name?: string;
+                  nestId?: string;
+                  overwrites?: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  type?: "text" | "category" | "announcement";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1489,13 +1975,23 @@ export declare const components: {
             | {
                 model: "olmAccount";
                 update: {
+                  createdAt?: number;
                   identityKey?: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys?: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1546,6 +2042,7 @@ export declare const components: {
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
+                  nests?: Array<string>;
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -1563,6 +2060,7 @@ export declare const components: {
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1588,17 +2086,21 @@ export declare const components: {
             | {
                 model: "userStatus";
                 update: {
-                  isUserSet?: boolean;
                   status?: "online" | "busy" | "offline" | "away";
                   updatedAt?: number;
                   userId?: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -1679,6 +2181,169 @@ export declare const components: {
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                update: {
+                  channels?: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt?: number;
+                  description?: string;
+                  emojis?: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId?: string;
+                  members?: Array<string>;
+                  name?: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles?: Array<string>;
+                  type?: "global" | "regional" | "private";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                update: {
+                  color?: string;
+                  createdAt?: number;
+                  flags?: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members?: Array<string>;
+                  mentionable?: boolean;
+                  name?: string;
+                  nestId?: string;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                update: {
+                  createdAt?: number;
+                  name?: string;
+                  nestId?: string;
+                  overwrites?: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  type?: "text" | "category" | "announcement";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1973,13 +2638,23 @@ export declare const components: {
             | {
                 model: "olmAccount";
                 update: {
+                  createdAt?: number;
                   identityKey?: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys?: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2006,6 +2681,12 @@ export declare const components: {
         any
       >;
     };
+    nests: {
+      locals: {
+        getRecommendedNests: FunctionReference<"query", "internal", any, any>;
+        getUserNests: FunctionReference<"query", "internal", any, any>;
+      };
+    };
     olm: {
       index: {
         consumeOTK: FunctionReference<
@@ -2014,6 +2695,13 @@ export declare const components: {
           { keyId: string; userId: string },
           any
         >;
+        getKeyVersion: FunctionReference<
+          "query",
+          "internal",
+          { userId: string },
+          any
+        >;
+        migrateOlmAccounts: FunctionReference<"mutation", "internal", any, any>;
         retrieveServerOlmAccount: FunctionReference<
           "query",
           "internal",
@@ -2041,8 +2729,15 @@ export declare const components: {
           { answer: "accept" | "decline" | "ignore"; requestId: string },
           any
         >;
+        forceUserOffline: FunctionReference<
+          "mutation",
+          "internal",
+          { userId: string },
+          any
+        >;
         getFriendRequests: FunctionReference<"query", "internal", any, any>;
         getFriends: FunctionReference<"query", "internal", any, any>;
+        getNonOfflineUserIds: FunctionReference<"query", "internal", {}, any>;
         getParticipantDetails: FunctionReference<
           "query",
           "internal",
@@ -2066,7 +2761,7 @@ export declare const components: {
           "mutation",
           "internal",
           {
-            isUserSet: boolean;
+            isUserSet?: boolean;
             status: "online" | "busy" | "offline" | "away";
           },
           any

@@ -40,6 +40,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name: string;
+                  nests?: Array<string>;
                   updatedAt: number;
                   userId?: null | string;
                   username?: null | string;
@@ -48,10 +49,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 data: {
-                  isUserSet: boolean;
                   status: "online" | "busy" | "offline" | "away";
                   updatedAt: number;
                   userId: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 model: "userStatus";
               }
@@ -72,6 +77,63 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 data: { createdAt: number; friendId: string; userId: string };
                 model: "friends";
+              }
+            | {
+                data: {
+                  channels: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt: number;
+                  description?: string;
+                  emojis: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId: string;
+                  members: Array<string>;
+                  name: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles: Array<string>;
+                  type: "global" | "regional" | "private";
+                  updatedAt: number;
+                };
+                model: "nests";
+              }
+            | {
+                data: {
+                  color?: string;
+                  createdAt: number;
+                  flags: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members: Array<string>;
+                  mentionable?: boolean;
+                  name: string;
+                  nestId: string;
+                  permissions: Array<bigint>;
+                  position?: number;
+                  updatedAt: number;
+                };
+                model: "roles";
+              }
+            | {
+                data: {
+                  createdAt: number;
+                  name: string;
+                  nestId: string;
+                  overwrites: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions: Array<bigint>;
+                  position: number;
+                  type: "text" | "category" | "announcement";
+                  updatedAt: number;
+                };
+                model: "channels";
               }
             | {
                 data: {
@@ -155,8 +217,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 data: {
+                  createdAt?: number;
                   identityKey: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId: string;
                 };
                 model: "olmAccount";
@@ -187,6 +252,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -216,7 +282,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -281,6 +347,121 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -514,7 +695,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "olmAccount";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -569,6 +757,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -598,7 +787,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -663,6 +852,121 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -896,7 +1200,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 model: "olmAccount";
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -934,6 +1245,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "userStatus"
             | "friendRequests"
             | "friends"
+            | "nests"
+            | "roles"
+            | "channels"
             | "messages"
             | "attachments"
             | "session"
@@ -988,6 +1302,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "userStatus"
             | "friendRequests"
             | "friends"
+            | "nests"
+            | "roles"
+            | "channels"
             | "messages"
             | "attachments"
             | "session"
@@ -1040,6 +1357,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
+                  nests?: Array<string>;
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -1057,6 +1375,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1082,17 +1401,21 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "userStatus";
                 update: {
-                  isUserSet?: boolean;
                   status?: "online" | "busy" | "offline" | "away";
                   updatedAt?: number;
                   userId?: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -1173,6 +1496,169 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                update: {
+                  channels?: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt?: number;
+                  description?: string;
+                  emojis?: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId?: string;
+                  members?: Array<string>;
+                  name?: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles?: Array<string>;
+                  type?: "global" | "regional" | "private";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                update: {
+                  color?: string;
+                  createdAt?: number;
+                  flags?: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members?: Array<string>;
+                  mentionable?: boolean;
+                  name?: string;
+                  nestId?: string;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                update: {
+                  createdAt?: number;
+                  name?: string;
+                  nestId?: string;
+                  overwrites?: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  type?: "text" | "category" | "announcement";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1467,13 +1953,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "olmAccount";
                 update: {
+                  createdAt?: number;
                   identityKey?: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys?: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1525,6 +2021,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     phrasePreference: "comforting" | "mocking" | "both";
                   };
                   name?: string;
+                  nests?: Array<string>;
                   updatedAt?: number;
                   userId?: null | string;
                   username?: null | string;
@@ -1542,6 +2039,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "username"
                     | "displayUsername"
                     | "metadata"
+                    | "nests"
                     | "_id";
                   operator?:
                     | "lt"
@@ -1567,17 +2065,21 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "userStatus";
                 update: {
-                  isUserSet?: boolean;
                   status?: "online" | "busy" | "offline" | "away";
                   updatedAt?: number;
                   userId?: string;
+                  userSetStatus?: {
+                    isSet: boolean;
+                    status: "online" | "busy" | "offline" | "away";
+                    updatedAt: number;
+                  };
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
                     | "userId"
                     | "status"
-                    | "isUserSet"
+                    | "userSetStatus"
                     | "updatedAt"
                     | "_id";
                   operator?:
@@ -1658,6 +2160,169 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "userId" | "friendId" | "createdAt" | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "nests";
+                update: {
+                  channels?: Array<string>;
+                  colors?: { accent: string; primary: string };
+                  createdAt?: number;
+                  description?: string;
+                  emojis?: Array<{
+                    createdAt: number;
+                    id: string;
+                    name: string;
+                  }>;
+                  images?: { banner: string; icon: string };
+                  managerId?: string;
+                  members?: Array<string>;
+                  name?: string;
+                  onDiscover?: boolean;
+                  region?: string;
+                  roles?: Array<string>;
+                  type?: "global" | "regional" | "private";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "description"
+                    | "images"
+                    | "colors"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "managerId"
+                    | "members"
+                    | "channels"
+                    | "roles"
+                    | "region"
+                    | "emojis"
+                    | "onDiscover"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "roles";
+                update: {
+                  color?: string;
+                  createdAt?: number;
+                  flags?: Array<bigint>;
+                  hoist?: boolean;
+                  icon?: string;
+                  members?: Array<string>;
+                  mentionable?: boolean;
+                  name?: string;
+                  nestId?: string;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "nestId"
+                    | "name"
+                    | "color"
+                    | "hoist"
+                    | "mentionable"
+                    | "icon"
+                    | "position"
+                    | "permissions"
+                    | "flags"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "members"
+                    | "_id";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "channels";
+                update: {
+                  createdAt?: number;
+                  name?: string;
+                  nestId?: string;
+                  overwrites?: Array<{
+                    allow: Array<bigint> | null;
+                    deny: Array<bigint> | null;
+                    id: string | string;
+                  }>;
+                  permissions?: Array<bigint>;
+                  position?: number;
+                  type?: "text" | "category" | "announcement";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "type"
+                    | "name"
+                    | "nestId"
+                    | "position"
+                    | "permissions"
+                    | "overwrites"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1952,13 +2617,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "olmAccount";
                 update: {
+                  createdAt?: number;
                   identityKey?: { curve25519: string; ed25519: string };
+                  keyVersion?: number;
                   oneTimeKeys?: Array<{ keyId: string; publicKey: string }>;
+                  updatedAt?: number;
                   userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
-                  field: "userId" | "identityKey" | "oneTimeKeys" | "_id";
+                  field:
+                    | "userId"
+                    | "identityKey"
+                    | "oneTimeKeys"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "keyVersion"
+                    | "_id";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1986,12 +2661,38 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Name
       >;
     };
+    nests: {
+      locals: {
+        getRecommendedNests: FunctionReference<
+          "query",
+          "internal",
+          any,
+          any,
+          Name
+        >;
+        getUserNests: FunctionReference<"query", "internal", any, any, Name>;
+      };
+    };
     olm: {
       index: {
         consumeOTK: FunctionReference<
           "mutation",
           "internal",
           { keyId: string; userId: string },
+          any,
+          Name
+        >;
+        getKeyVersion: FunctionReference<
+          "query",
+          "internal",
+          { userId: string },
+          any,
+          Name
+        >;
+        migrateOlmAccounts: FunctionReference<
+          "mutation",
+          "internal",
+          any,
           any,
           Name
         >;
@@ -2025,6 +2726,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           any,
           Name
         >;
+        forceUserOffline: FunctionReference<
+          "mutation",
+          "internal",
+          { userId: string },
+          any,
+          Name
+        >;
         getFriendRequests: FunctionReference<
           "query",
           "internal",
@@ -2033,6 +2741,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           Name
         >;
         getFriends: FunctionReference<"query", "internal", any, any, Name>;
+        getNonOfflineUserIds: FunctionReference<
+          "query",
+          "internal",
+          {},
+          any,
+          Name
+        >;
         getParticipantDetails: FunctionReference<
           "query",
           "internal",
@@ -2059,7 +2774,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           "mutation",
           "internal",
           {
-            isUserSet: boolean;
+            isUserSet?: boolean;
             status: "online" | "busy" | "offline" | "away";
           },
           any,

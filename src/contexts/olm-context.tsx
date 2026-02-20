@@ -2,8 +2,8 @@
 
 import { loadOlm } from "@/app/auth/scripts/makeKeys";
 import { decryptPassword, encryptPassword, getOrCreatePasswordEncryptionKey } from "@/lib/crypto";
-import { db } from "@/lib/db";
-import { checkOlmStatus, getOlmAccount, handleOlmAccountCreation, SendKeysToServerFn } from "@/lib/olm";
+import { db, invalidateSession, validateSessionKeys } from "@/lib/db";
+import { checkOlmStatus, clearOlmAccountCache, getOlmAccount, handleOlmAccountCreation, SendKeysToServerFn } from "@/lib/olm";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 // ============================================
@@ -20,9 +20,24 @@ interface OlmContextValue {
 	getSession: (recipientId: string, recipientOlmAccount: {
 		identityKey: { curve25519: string; ed25519: string };
 		oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
+		keyVersion?: number;
 	}) => Promise<Olm.Session | null>;
-	createInboundSession: (senderId: string, preKeyMessage: string) => Promise<Olm.Session | null>;
+	createInboundSession: (
+		senderId: string,
+		preKeyMessage: string,
+		senderKeyVersion?: number,
+		senderIdentityKey?: { curve25519: string; ed25519: string }
+	) => Promise<Olm.Session | null>;
 	sessions: Map<string, Olm.Session>;
+
+	// Key synchronization
+	validateRecipientKeys: (
+		recipientId: string,
+		recipientOlmAccount: {
+			identityKey: { curve25519: string; ed25519: string };
+			keyVersion?: number;
+		}
+	) => Promise<boolean>;
 
 	// Password & setup
 	password: string | null;
@@ -72,6 +87,8 @@ export function OlmProvider({
 	const passwordSetManuallyRef = useRef(false);
 	// Track if we're currently loading the OLM account (prevent duplicate loads)
 	const isLoadingAccountRef = useRef(false);
+	// Trigger to force reload of OLM account
+	const [reloadTrigger, setReloadTrigger] = useState(0);
 	const [, forceUpdate] = useState({});
 
 	// Initialize encryption key on mount
@@ -96,7 +113,9 @@ export function OlmProvider({
 	const saveSessionToDb = useCallback(async (
 		recipientId: string,
 		session: Olm.Session,
-		sessionPassword: string
+		sessionPassword: string,
+		recipientKeyVersion?: number,
+		recipientIdentityKey?: { curve25519: string; ed25519: string }
 	) => {
 		if (!userId) return;
 
@@ -106,8 +125,10 @@ export function OlmProvider({
 			pickledSession: session.pickle(sessionPassword),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
+			recipientKeyVersion,
+			recipientIdentityKey,
 		});
-		console.debug("[OlmContext]: Session saved to DB");
+		console.debug("[OlmContext]: Session saved to DB with key version:", recipientKeyVersion);
 	}, [userId]);
 
 	// Helper: Unpickle session from database
@@ -217,8 +238,10 @@ export function OlmProvider({
 		const loadAccount = async () => {
 			isLoadingAccountRef.current = true;
 			try {
-				console.debug("[OlmContext]: Loading OLM account...");
-				const account = await getOlmAccount(userId, password);
+				const forceReload = reloadTrigger > 0;
+				console.log("[OlmContext]: Loading OLM account... (trigger:", reloadTrigger, "forceReload:", forceReload, ")");
+
+				const account = await getOlmAccount(userId, password, forceReload);
 				if (!account) {
 					console.warn("[OlmContext]: No OLM account found");
 					isLoadingAccountRef.current = false;
@@ -227,7 +250,7 @@ export function OlmProvider({
 
 				setOlmAccount(account);
 				setPasswordError(null);
-				console.debug("[OlmContext]: OLM account loaded successfully");
+				console.log("[OlmContext]: OLM account loaded successfully");
 			} catch (err) {
 				console.error("[OlmContext]: Failed to load OLM account:", err);
 				// Password is wrong - clear it and set error
@@ -239,7 +262,7 @@ export function OlmProvider({
 		};
 
 		loadAccount();
-	}, [userId, password, clearPassword]);
+	}, [userId, password, reloadTrigger, clearPassword]);
 
 	// Clear password error
 	const clearPasswordError = useCallback(() => {
@@ -279,17 +302,24 @@ export function OlmProvider({
 		if (!userId || !accountPassword.trim()) return;
 
 		setOlmStatus("creating");
+		const isRotation = olmStatus === "mismatched";
+
 		const success = await handleOlmAccountCreation(
 			userId,
 			accountPassword,
 			sendKeysToServer,
-			olmStatus === "mismatched"
+			isRotation
 		);
 
 		if (success) {
 			setOlmStatus("synced");
 			setShowOlmModal(false);
 			setPassword(accountPassword);
+
+			// Clear cache and force reload OLM account from IndexedDB after creation/rotation
+			console.log("[OlmContext]: Keys", isRotation ? "rotated" : "created", "- clearing cache and reloading account");
+			clearOlmAccountCache(userId);
+			setReloadTrigger(prev => prev + 1);
 		} else {
 			setOlmStatus("not_setup");
 		}
@@ -301,15 +331,43 @@ export function OlmProvider({
 		recipientOlmAccount: {
 			identityKey: { curve25519: string; ed25519: string };
 			oneTimeKeys: Array<{ keyId: string; publicKey: string }>;
+			keyVersion?: number; // Optional key version for validation
 		}
 	): Promise<Olm.Session | null> => {
+		console.log(`[OlmContext]: getSession called for ${recipientId}`, {
+			hasIdentityKey: !!recipientOlmAccount.identityKey,
+			oneTimeKeysCount: recipientOlmAccount.oneTimeKeys.length,
+			keyVersion: recipientOlmAccount.keyVersion
+		});
+
 		if (!validateSessionRequirements()) {
+			console.error("[OlmContext]: Session requirements validation failed");
 			return null;
 		}
 
-		// Check if we already have this session in memory
-		if (sessionsRef.current.has(recipientId)) {
-			console.debug(`[OlmContext]: Using cached session for ${recipientId}`);
+		// CRITICAL: Validate recipient's keys before using cached session
+		const keyVersion = recipientOlmAccount.keyVersion || 0;
+		console.log(`[OlmContext]: Validating keys for ${recipientId}, version: ${keyVersion}`);
+
+		const isValid = await validateSessionKeys(
+			recipientId,
+			keyVersion,
+			recipientOlmAccount.identityKey
+		);
+
+		console.log(`[OlmContext]: Key validation result for ${recipientId}: ${isValid}`);
+
+		if (!isValid) {
+			console.warn(`[OlmContext]: Recipient keys changed, invalidating session for ${recipientId}`);
+			// Remove cached session
+			sessionsRef.current.delete(recipientId);
+			// Remove from database
+			await invalidateSession(userId!, recipientId);
+		}
+
+		// Check if we already have this session in memory (after validation)
+		if (sessionsRef.current.has(recipientId) && isValid) {
+			console.log(`[OlmContext]: Using cached session for ${recipientId}`);
 			return sessionsRef.current.get(recipientId)!;
 		}
 
@@ -325,13 +383,13 @@ export function OlmProvider({
 			try {
 				console.debug(`[OlmContext]: Loading/creating session for user ${recipientId}`);
 
-				// Check if session exists in DB
+				// Check if session exists in DB (after validation cleared invalid ones)
 				const existingSession = await db.olmSessions
 					.where("[odId+recipientId]")
 					.equals([userId!, recipientId])
 					.first();
 
-				if (existingSession) {
+				if (existingSession && isValid) {
 					console.debug("[OlmContext]: Found existing session in DB, unpickling...");
 					const session = await unpickleSessionFromDb(recipientId, existingSession.pickledSession, password!);
 
@@ -344,15 +402,23 @@ export function OlmProvider({
 				}
 
 				// Create new outbound session
-				console.debug("[OlmContext]: Creating new outbound session...");
+				console.log("[OlmContext]: Creating new outbound session...");
 
 				if (recipientOlmAccount.oneTimeKeys.length === 0) {
+					console.error("[OlmContext]: No one-time keys available for recipient");
 					throw new Error("No one-time keys available for recipient");
 				}
 
 				const otk = recipientOlmAccount.oneTimeKeys[0];
+				console.log(`[OlmContext]: Using OTK ${otk.keyId} for session creation`);
+
 				const Olm: typeof import("@matrix-org/olm") = await loadOlm();
 				const newSession: Olm.Session = new Olm.Session();
+
+				console.log(`[OlmContext]: Creating outbound session with:`, {
+					recipientCurve: recipientOlmAccount.identityKey.curve25519.substring(0, 20) + '...',
+					otkPublicKey: otk.publicKey.substring(0, 20) + '...'
+				});
 
 				newSession.create_outbound(
 					olmAccount!,
@@ -360,24 +426,33 @@ export function OlmProvider({
 					otk.publicKey
 				);
 
-				console.debug(`[OlmContext]: Created session: ${newSession.session_id()}`);
+				console.log(`[OlmContext]: Created session: ${newSession.session_id()}`);
 
-				// Save to DB
-				await saveSessionToDb(recipientId, newSession, password!);
+				// Save to DB with key version and identity key
+				console.log(`[OlmContext]: Saving session to DB with keyVersion: ${keyVersion}`);
+				await saveSessionToDb(
+					recipientId,
+					newSession,
+					password!,
+					keyVersion,
+					recipientOlmAccount.identityKey
+				);
 
 				// Consume the OTK from server
 				try {
+					console.log(`[OlmContext]: Consuming OTK ${otk.keyId} from server`);
 					await consumeOTK({
 						userId: recipientId,
 						keyId: otk.keyId,
 					});
-					console.debug(`[OlmContext]: Consumed OTK: ${otk.keyId}`);
+					console.log(`[OlmContext]: Successfully consumed OTK: ${otk.keyId}`);
 				} catch (err) {
 					console.error("[OlmContext]: Failed to consume OTK:", err);
 				}
 
 				// Cache it
 				cacheSession(recipientId, newSession);
+				console.log(`[OlmContext]: Session cached and ready for ${recipientId}`);
 
 				return newSession;
 			} catch (err) {
@@ -398,7 +473,9 @@ export function OlmProvider({
 	// Create an INBOUND session from a received pre-key message
 	const createInboundSession = useCallback(async (
 		senderId: string,
-		preKeyMessage: string
+		preKeyMessage: string,
+		senderKeyVersion?: number,
+		senderIdentityKey?: { curve25519: string; ed25519: string }
 	): Promise<Olm.Session | null> => {
 		console.debug("[OlmContext]: Args passed to createInboundSession", { senderId, preKeyMessage });
 
@@ -426,8 +503,14 @@ export function OlmProvider({
 
 			console.debug(`[OlmContext]: Created inbound session: ${newSession.session_id()}`);
 
-			// Save to DB
-			await saveSessionToDb(senderId, newSession, password!);
+			// Save to DB with sender's key metadata
+			await saveSessionToDb(
+				senderId,
+				newSession,
+				password!,
+				senderKeyVersion,
+				senderIdentityKey
+			);
 
 			// Cache it
 			cacheSession(senderId, newSession);
@@ -438,6 +521,36 @@ export function OlmProvider({
 			return null;
 		}
 	}, [validateSessionRequirements, olmAccount, password, saveSessionToDb, cacheSession]);
+
+	// Validate recipient keys and invalidate session if keys have changed
+	const validateRecipientKeys = useCallback(async (
+		recipientId: string,
+		recipientOlmAccount: {
+			identityKey: { curve25519: string; ed25519: string };
+			keyVersion?: number;
+		}
+	): Promise<boolean> => {
+		if (!userId) return false;
+
+		const keyVersion = recipientOlmAccount.keyVersion || 0;
+		const isValid = await validateSessionKeys(
+			recipientId,
+			keyVersion,
+			recipientOlmAccount.identityKey
+		);
+
+		if (!isValid) {
+			console.warn(`[OlmContext]: Keys changed for ${recipientId}, invalidating session`);
+			// Remove cached session
+			sessionsRef.current.delete(recipientId);
+			// Remove from database
+			await invalidateSession(userId, recipientId);
+			// Force re-render to update UI
+			forceUpdate({});
+		}
+
+		return isValid;
+	}, [userId]);
 
 	const isReady = useMemo(() => {
 		return olmAccount !== null && olmStatus === "synced";
@@ -450,6 +563,7 @@ export function OlmProvider({
 		getSession,
 		createInboundSession,
 		sessions: sessionsRef.current,
+		validateRecipientKeys,
 		password,
 		passwordError,
 		showOlmModal,

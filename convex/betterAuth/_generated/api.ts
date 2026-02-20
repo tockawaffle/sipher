@@ -10,7 +10,9 @@
 
 import type * as adapter from "../adapter.js";
 import type * as auth from "../auth.js";
+import type * as nests_locals from "../nests/locals.js";
 import type * as olm_index from "../olm/index.js";
+import type * as schemas_nests from "../schemas/nests.js";
 import type * as schemas_user from "../schemas/user.js";
 import type * as user_index from "../user/index.js";
 
@@ -24,7 +26,9 @@ import { anyApi, componentsGeneric } from "convex/server";
 const fullApi: ApiFromModules<{
   adapter: typeof adapter;
   auth: typeof auth;
+  "nests/locals": typeof nests_locals;
   "olm/index": typeof olm_index;
+  "schemas/nests": typeof schemas_nests;
   "schemas/user": typeof schemas_user;
   "user/index": typeof user_index;
 }> = anyApi as any;

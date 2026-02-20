@@ -6,10 +6,12 @@ export const nests = {
 		type: v.union(v.literal("global"), v.literal("regional"), v.literal("private")),
 		name: v.string(),
 		description: v.optional(v.string()),
-		images: v.object({
-			banner: v.id("storage"),
-			icon: v.id("storage"),
-		}),
+		images: v.optional(
+			v.object({
+				banner: v.id("storage"),
+				icon: v.id("storage"),
+			})
+		),
 		colors: v.optional(
 			v.object({
 				primary: v.string(),
@@ -28,11 +30,13 @@ export const nests = {
 			name: v.string(),
 			createdAt: v.number(),
 		})),
+		onDiscover: v.optional(v.boolean()),
 	})
 		.index("managerId", ["managerId"])
 		.index("type", ["type"])
 		.index("type_region", ["type", "region"])
-		.index("createdAt", ["createdAt"]),
+		.index("createdAt", ["createdAt"])
+		.index("onDiscover", ["onDiscover"]),
 	roles: defineTable({
 		nestId: v.id("nests"),
 		name: v.string(),
@@ -45,9 +49,12 @@ export const nests = {
 		flags: v.array(v.int64()), // Flags as bitfield
 		createdAt: v.number(),
 		updatedAt: v.number(),
+		members: v.array(v.id("user")),
 	})
 		.index("nestId", ["nestId"])
-		.index("nestId_position", ["nestId", "position"]),
+		.index("nestId_position", ["nestId", "position"])
+		.index("nestId_members", ["nestId", "members"])
+		.index("members", ["members"]),
 	channels: defineTable({
 		type: v.union(v.literal("text"), v.literal("category"), v.literal("announcement")),
 		name: v.string(),

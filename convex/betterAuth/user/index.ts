@@ -28,25 +28,38 @@ async function userValidation(ctx: MutationCtx | QueryCtx, options?: { required?
 export const updateUserStatus = mutation({
 	args: {
 		status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
-		isUserSet: v.boolean(),
+		isUserSet: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		try {
 			const { userId } = await userValidation(ctx);
+			const isUserSet = args.isUserSet ?? false;
 
-			// Check if user status is already set
 			const userStatus = await ctx.db.query("userStatus").withIndex("userId", (q) => q.eq("userId", userId)).first();
 			if (userStatus) {
+				let resolvedStatus = args.status;
+
+				// Restore user-set status when reconnecting
+				if (args.status === "online" && !isUserSet && userStatus.userSetStatus?.isSet) {
+					resolvedStatus = userStatus.userSetStatus.status;
+				}
+
 				await ctx.db.patch(userStatus._id, {
-					status: args.status,
-					isUserSet: args.isUserSet,
+					status: resolvedStatus,
+					userSetStatus: isUserSet
+						? { status: args.status, updatedAt: Date.now(), isSet: true }
+						: userStatus.userSetStatus,
 					updatedAt: Date.now(),
 				});
 			} else {
 				await ctx.db.insert("userStatus", {
 					userId: userId,
 					status: args.status,
-					isUserSet: false,
+					userSetStatus: {
+						status: args.status,
+						updatedAt: Date.now(),
+						isSet: isUserSet,
+					},
 					updatedAt: Date.now(),
 				});
 			}
@@ -69,6 +82,59 @@ export const getUserStatus = query({
 		const userStatus = await ctx.db.query("userStatus").withIndex("userId", (q) => q.eq("userId", userId)).first();
 		return userStatus;
 	}
+});
+
+export const getNonOfflineUserIds = query({
+	args: {},
+	handler: async (ctx) => {
+		const results: { userId: string; status: string; isUserSet: boolean }[] = [];
+
+		for (const status of ["online", "busy", "away"] as const) {
+			const records = await ctx.db
+				.query("userStatus")
+				.withIndex("status", (q) => q.eq("status", status))
+				.collect();
+
+			for (const record of records) {
+				results.push({
+					userId: record.userId,
+					status: record.status,
+					isUserSet: record.userSetStatus?.isSet ?? false,
+				});
+			}
+		}
+
+		return results;
+	},
+});
+
+export const forceUserOffline = mutation({
+	args: {
+		userId: v.string(),
+	},
+	handler: async (ctx, args) => {
+		const normalizedId = ctx.db.normalizeId("user", args.userId);
+		if (!normalizedId) return;
+
+		const userStatus = await ctx.db
+			.query("userStatus")
+			.withIndex("userId", (q) => q.eq("userId", normalizedId))
+			.first();
+
+		if (!userStatus || userStatus.status === "offline") return;
+
+		await ctx.db.patch(userStatus._id, {
+			status: "offline",
+			userSetStatus: userStatus.userSetStatus ? {
+				status: userStatus.userSetStatus.status,
+				updatedAt: Date.now(),
+				isSet: userStatus.userSetStatus.isSet,
+			} : undefined,
+			updatedAt: Date.now(),
+		});
+
+		console.log(`[forceUserOffline] Set user ${args.userId} offline (was: ${userStatus.status})`);
+	},
 });
 
 export const updateUserMetadata = mutation({
@@ -320,7 +386,7 @@ export const getFriends = query({
 					friendshipCreatedAt: friendship.createdAt,
 					status: friendStatus ? {
 						status: friendStatus.status,
-						isUserSet: friendStatus.isUserSet,
+						isUserSet: friendStatus.userSetStatus?.isSet ?? false,
 					} : {
 						status: "offline" as const,
 						isUserSet: false,
@@ -356,6 +422,14 @@ export const getParticipantDetails = query({
 			const participantOlmAccount = await ctx.db.query("olmAccount").withIndex("userId", (q) => q.eq("userId", id)).first();
 			if (!participant) return null;
 
+			// Ensure backward compatibility with old olmAccount records
+			const olmAccountWithDefaults = participantOlmAccount ? {
+				...participantOlmAccount,
+				keyVersion: participantOlmAccount.keyVersion ?? 1,
+				createdAt: participantOlmAccount.createdAt ?? participantOlmAccount._creationTime,
+				updatedAt: participantOlmAccount.updatedAt ?? participantOlmAccount._creationTime,
+			} : null;
+
 			return {
 				id: participant._id,
 				name: participant.name,
@@ -363,7 +437,7 @@ export const getParticipantDetails = query({
 				displayUsername: participant.displayUsername,
 				image: participant.image,
 				status: participantStatus?.status || "offline",
-				olmAccount: participantOlmAccount,
+				olmAccount: olmAccountWithDefaults,
 			}
 		}));
 

@@ -25,12 +25,15 @@ interface SocketManagerOptions {
 	authMethod?: "session" | "ott";
 }
 
+const RECONCILE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+
 export default class SocketManager {
 
 	private socketIo: SocketIOServer | null = null;
 	private events: Map<string, SiPher.EventsType[]> = new Map();
 	private options: SocketManagerOptions;
 	private convex: ConvexHttpClient;
+	private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(nextServer: HTTPServer, options: SocketManagerOptions = {}) {
 		if (!nextServer) {
@@ -148,6 +151,48 @@ export default class SocketManager {
 		return this.socketIo?.sockets.sockets.get(userId);
 	}
 
+	private extractJwt(socket: Socket): string | null {
+		const cookies = socket.handshake.headers.cookie;
+		if (!cookies || !cookies.includes("better-auth.convex_jwt")) return null;
+		const token = cookies.split("better-auth.convex_jwt=")[1]?.split(";")[0];
+		return token || null;
+	}
+
+	/**
+	 * Periodically queries Convex for all users with a non-offline status,
+	 * checks if they have a live socket connection, and forces offline
+	 * any that don't.
+	 */
+	private startStatusReconciliation(): void {
+		if (this.reconcileTimer) return;
+
+		this.reconcileTimer = setInterval(async () => {
+			try {
+				const nonOfflineUsers = await this.convex.query(api.auth.getNonOfflineUserIds, {});
+				if (!nonOfflineUsers || nonOfflineUsers.length === 0) return;
+
+				const connectedSocketIds = this.socketIo?.sockets.sockets;
+				let reconciled = 0;
+
+				for (const entry of nonOfflineUsers) {
+					const hasSocket = connectedSocketIds?.has(entry.userId) ?? false;
+					if (hasSocket) continue;
+
+					await this.convex.mutation(api.auth.forceUserOffline, { userId: entry.userId });
+					reconciled++;
+				}
+
+				if (reconciled > 0) {
+					console.log(`[SocketManager] Reconciled ${reconciled} ghost user(s) to offline`);
+				}
+			} catch (error) {
+				console.error("[SocketManager] Status reconciliation error:", error);
+			}
+		}, RECONCILE_INTERVAL_MS);
+
+		console.log(`[SocketManager] Status reconciliation started (every ${RECONCILE_INTERVAL_MS / 1000}s)`);
+	}
+
 	public async initializeEventHandler(): Promise<void> {
 		// Get events from the events folder
 		const socketIo = this.getSocketIo();
@@ -222,21 +267,15 @@ export default class SocketManager {
 			// Handle disconnect within the connection context
 			socket.on("disconnect", async (reason) => {
 				try {
-					const cookies = socket.handshake.headers.cookie;
-					if (!cookies || !cookies.includes("better-auth.convex_jwt")) return;
-					const session = cookies.split("better-auth.convex_jwt=")[1].split(";")[0];
-
-					if (!session) {
+					const token = this.extractJwt(socket);
+					if (!token) {
 						console.warn(`[SocketManager] No session found for user ${socket.id}, skipping status update`);
 						return;
 					}
 
-					// Set auth token for this mutation
-					this.convex.setAuth(session);
-
+					this.convex.setAuth(token);
 					await this.convex.mutation(api.auth.updateUserStatus, {
 						status: "offline",
-						isUserSet: false,
 					});
 					console.log(`[SocketManager] Set user ${socket.id} status to offline`);
 				} catch (error) {
@@ -244,5 +283,7 @@ export default class SocketManager {
 				}
 			});
 		})
+
+		this.startStatusReconciliation();
 	}
 }

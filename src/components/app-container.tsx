@@ -15,27 +15,59 @@ import { useCallback, useEffect, useMemo } from "react";
 import { api } from "../../convex/_generated/api";
 import OlmPasswordDialog from "./olm/olm-password-dialog";
 
+type RouteParams = Record<string, string | string[] | undefined>;
+
+type RouteMatcher = {
+	path?: string;
+	pattern?: RegExp;
+	type: SiPher.PageTypes;
+	extract?: (match: RegExpMatchArray, params: RouteParams) => Partial<SiPher.RouteInfo>;
+};
+
+const routes: RouteMatcher[] = [
+	{ path: '/channels/me/friends', type: 'friends' },
+	{ path: '/discover', type: 'discover' },
+	{ path: '/support', type: 'support' },
+	{ path: '/channels/nests/global', type: 'global-nests' },
+	{
+		pattern: /^\/channels\/me\/(.+)$/,
+		type: 'dm',
+		extract: (_, params) => ({
+			dmChannelId: params.id ? decodeURIComponent(params.id as string) : undefined
+		})
+	},
+	{
+		pattern: /^\/channels\/servers\/(.+)$/,
+		type: 'server',
+		extract: (_, params) => ({
+			serverId: params.serverId ? decodeURIComponent(params.serverId as string) : undefined,
+			serverChannelId: params.channelId ? decodeURIComponent(params.channelId as string) : undefined
+		})
+	},
+];
+
 function AppContainerContent() {
 	const pathname = usePathname();
 	const params = useParams();
 
-	// Detect route type and extract params from URL
-	const routeInfo = useMemo(() => {
-		if (pathname.startsWith('/channels/me/')) {
-			return {
-				type: 'dm' as const,
-				// Decode URL-encoded params (dm%3A... becomes dm:...)
-				dmChannelId: params.id ? decodeURIComponent(params.id as string) : undefined
-			};
+	const routeInfo: SiPher.RouteInfo = useMemo(() => {
+		for (const route of routes) {
+			if (route.path && pathname === route.path) {
+				return { type: route.type };
+			}
+
+			if (route.pattern) {
+				const match = pathname.match(route.pattern);
+				if (match) {
+					return {
+						type: route.type,
+						...route.extract?.(match, params)
+					};
+				}
+			}
 		}
-		if (pathname.startsWith('/channels/servers/')) {
-			return {
-				type: 'server' as const,
-				serverId: params.serverId ? decodeURIComponent(params.serverId as string) : undefined,
-				serverChannelId: params.channelId ? decodeURIComponent(params.channelId as string) : undefined
-			};
-		}
-		return { type: 'home' as const };
+
+		return { type: 'friends' };
 	}, [pathname, params]);
 
 	const { data } = authClient.useSession();
@@ -47,6 +79,7 @@ function AppContainerContent() {
 	const { olmStatus, showOlmModal, setShowOlmModal, handleCreateAccount } = useOlmContext();
 
 	const updateUserMetadata = useMutation(api.auth.updateUserMetadata);
+	const userNests = useQuery(api.auth.getUserNests);
 
 	useEffect(() => {
 		if (!data) return;
@@ -82,15 +115,15 @@ function AppContainerContent() {
 				socketInfo={socketInfo}
 				disconnectSocket={disconnect}
 				connectSocket={connect}
+				routeInfo={routeInfo}
 			>
 				<MainContentLayout
 					socketStatus={socketStatus}
 					emptyChannelMessage={getPhrase()}
 					emptyFriendsMessage={getPhrase()}
 					userId={data.user.id}
-					dmChannelId={routeInfo.type === 'dm' ? routeInfo.dmChannelId : undefined}
-					serverId={routeInfo.type === 'server' ? routeInfo.serverId : undefined}
-					serverChannelId={routeInfo.type === 'server' ? routeInfo.serverChannelId : undefined}
+					routeInfo={routeInfo}
+					userNests={userNests}
 				/>
 			</AppSidebar>
 

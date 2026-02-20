@@ -1,6 +1,7 @@
 import { useOlmContext } from "@/contexts/olm-context";
 import { useSocketContext } from "@/contexts/socket-context";
 import { clearUnread, db, sendMessage } from "@/lib/db";
+import { setActiveChannel } from "@/lib/notifications";
 import { useLiveQuery } from "dexie-react-hooks";
 import { KeyRound, SendIcon } from "lucide-react";
 import moment from "moment";
@@ -111,10 +112,21 @@ export default function DMChannelContent(
 		}
 	}, [allMessages.length]);
 
-	// Clear unread count when entering the channel
+	// Set active channel and clear unread count when viewing this channel
 	useEffect(() => {
+		// Mark this channel as active (prevents notifications)
+		setActiveChannel(channelId);
+		
+		// Clear any existing unread count
 		clearUnread(channelId);
-		console.debug("[DMChannelContent] Cleared unread count for channel", channelId);
+		
+		console.debug("[DMChannelContent] Set active channel and cleared unread:", channelId);
+
+		// Cleanup: unset active channel when leaving
+		return () => {
+			setActiveChannel(null);
+			console.debug("[DMChannelContent] Cleared active channel");
+		};
 	}, [channelId]);
 
 	// Guard: Check if otherUser exists
@@ -131,18 +143,31 @@ export default function DMChannelContent(
 	// Get or create session when OLM is ready and we have the other user's account
 	useEffect(() => {
 		const loadSession = async () => {
+			console.log("[DMChannelContent] loadSession effect triggered", {
+				isReady,
+				hasOlmAccount: !!olmAccount,
+				hasOtherUser: !!otherUser,
+				hasOtherUserOlmAccount: !!otherUser?.olmAccount,
+				otherUserId: otherUser?.id
+			});
+
 			if (!isReady || !olmAccount || !otherUser || !otherUser.olmAccount) {
+				console.log("[DMChannelContent] Not ready to load session, skipping");
 				return;
 			}
 
 			setSessionError(null);
+			console.log("[DMChannelContent] Calling getSession for", otherUser.id);
 
 			try {
 				const session = await getSession(otherUser.id, otherUser.olmAccount);
+				console.log("[DMChannelContent] getSession returned:", !!session);
 
 				if (session) {
 					setOlmSession(session);
+					console.log("[DMChannelContent] Session set successfully");
 				} else {
+					console.error("[DMChannelContent] getSession returned null");
 					setSessionError("Failed to create encryption session");
 				}
 			} catch (err) {
@@ -152,7 +177,7 @@ export default function DMChannelContent(
 		};
 
 		loadSession();
-	}, [isReady, olmAccount, otherUser, password,])
+	}, [isReady, olmAccount, otherUser, password, getSession])
 
 	// Check if OLM is ready
 	if (!isReady || !olmAccount) {
@@ -263,6 +288,7 @@ export default function DMChannelContent(
 							const displayName = isSelf ? selfDetail?.displayUsername ?? selfDetail?.username ?? selfDetail?.name ?? "You" : (sender?.displayUsername ?? sender?.username ?? sender?.name ?? "Unknown");
 							const timestamp = moment(msg.timestamp);
 							const timeLabel = timestamp.isSame(moment(), "day") ? timestamp.format("h:mm A") : timestamp.format("MMM D, YYYY h:mm A");
+							const shortTimeLabel = timestamp.format("h:mm A")
 
 							// Check if this message is from the same user as the previous one within 5 minutes
 							const prevMsg = index > 0 ? messages[index - 1] : null;
@@ -303,11 +329,9 @@ export default function DMChannelContent(
 									) : (
 										// Compact message without avatar (grouped)
 										<div className="flex gap-2 md:gap-4 leading-5.5">
-											<div className="w-8 md:w-10 shrink-0 flex items-start justify-end pt-0.5">
-												<span className="text-[10px] text-transparent group-hover:text-muted-foreground transition-colors duration-100 font-medium">
-													{
-														timeLabel
-													}
+											<div className="w-6 md:w-10 shrink-0 flex items-start justify-end pt-0.5">
+												<span className="text-[9px] text-transparent group-hover:text-muted-foreground transition-colors duration-100 font-light">
+													{shortTimeLabel}
 												</span>
 											</div>
 											<div className="flex-1 min-w-0 text-sm md:text-[15px] leading-5.5 text-foreground wrap-break-word">
@@ -339,6 +363,13 @@ export default function DMChannelContent(
 					onKeyDown={async (e) => {
 						if (e.key === 'Enter' && !e.shiftKey && messageInput.trim() && password) {
 							e.preventDefault();
+							console.log("[DMChannelContent] Attempting to send message", {
+								hasOlmSession: !!olmSession,
+								hasPassword: !!password,
+								recipientId: otherUser.id,
+								recipientKeyVersion: otherUser.olmAccount?.keyVersion
+							});
+							
 							try {
 								const messageId = await sendMessage({
 									channelId,
@@ -351,7 +382,11 @@ export default function DMChannelContent(
 									userId,
 									recipientId: otherUser.id,
 									password,
+									recipientKeyVersion: otherUser.olmAccount?.keyVersion,
+									recipientIdentityKey: otherUser.olmAccount?.identityKey,
 								});
+
+								console.log("[DMChannelContent] Message sent successfully, ID:", messageId);
 
 								if (messageId) {
 									setMessageInput("");

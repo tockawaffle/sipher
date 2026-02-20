@@ -20,16 +20,21 @@ export type SendKeysToServerFn = (args: {
  * Unpickle and retrieve the OLM account for a user
  * @param userId - The user's ID
  * @param password - The password used to pickle the account
+ * @param forceReload - If true, skips cache and reloads from IndexedDB
  * @returns Promise resolving to the unpickled Olm.Account, or null if not found
  */
 export async function getOlmAccount(
 	userId: string,
-	password: string
+	password: string,
+	forceReload: boolean = false
 ): Promise<any | null> {
-	// Check cache first
-	if ((window as any).olmAccountCache?.[userId]) {
+	// Check cache first (unless forcing reload)
+	if (!forceReload && (window as any).olmAccountCache?.[userId]) {
+		console.debug("[OLM] Using cached account for", userId);
 		return (window as any).olmAccountCache[userId];
 	}
+
+	console.debug("[OLM] Loading account from IndexedDB for", userId, "forceReload:", forceReload);
 
 	// Get pickled account from DB
 	const pickledData = await db.olmAccounts.get(userId);
@@ -46,7 +51,19 @@ export async function getOlmAccount(
 	}
 	(window as any).olmAccountCache[userId] = account;
 
+	console.debug("[OLM] Account loaded and cached for", userId);
 	return account;
+}
+
+/**
+ * Clear cached OLM account for a user
+ * Call this after key rotation to force reload
+ */
+export function clearOlmAccountCache(userId: string): void {
+	if ((window as any).olmAccountCache?.[userId]) {
+		delete (window as any).olmAccountCache[userId];
+		console.debug("[OLM] Cleared account cache for", userId);
+	}
 }
 
 /**

@@ -1,7 +1,9 @@
-import { createServer } from 'http'
-import next from 'next'
-import { parse } from 'url'
-import SocketManager from "./lib/sockets"
+import { config } from "dotenv";
+import { createServer } from 'http';
+import next from 'next';
+import { parse } from 'url';
+import SocketManager from "./lib/sockets";
+config({ path: '.env.local' });
 
 const port = parseInt(process.env.PORT || '3000', 10)
 const dev = process.env.NODE_ENV !== 'production'

@@ -15,15 +15,23 @@ export const user = {
 		metadata: v.optional(v.object({
 			phrasePreference: v.union(v.literal("comforting"), v.literal("mocking"), v.literal("both")),
 		})),
+		nests: v.optional(v.array(v.id("nests"))),
 	})
 		.index("email_name", ["email", "name"])
+		.index("nests", ["nests"])
 		.index("byName", ["name"])
 		.index("userId", ["userId"])
 		.index("username", ["username"]),
 	userStatus: defineTable({
 		userId: v.id("user"),
 		status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
-		isUserSet: v.boolean(),
+		userSetStatus: v.optional(
+			v.object({
+				status: v.union(v.literal("online"), v.literal("busy"), v.literal("offline"), v.literal("away")),
+				updatedAt: v.number(),
+				isSet: v.boolean(),
+			})
+		),
 		updatedAt: v.number(),
 	})
 		.index("userId", ["userId"])
@@ -42,6 +50,7 @@ export const user = {
 		.index("userId_method", ["userId", "method"])
 		.index("userId", ["userId"])
 		.index("requestId", ["requestId"])
+		.index("userId_requestTo", ["userId", "requestTo"])
 		.index("requestTo", ["requestTo"])
 		.index("expiresAt", ["expiresAt"]),
 	friends: defineTable({

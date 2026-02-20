@@ -14,6 +14,7 @@ import { Plus } from "lucide-react"
 import * as React from "react"
 import { useEffect, useMemo } from "react"
 import { api } from "../../../../convex/_generated/api"
+import { Doc } from "../../../../convex/betterAuth/_generated/dataModel"
 import DMChannelContent from "../dm/DmChannelContent"
 import { FriendsPage } from "../friends/friends-page"
 import { Spinner } from "../spinner"
@@ -26,9 +27,13 @@ export interface MainContentLayoutProps {
 	emptyChannelMessage?: string
 	emptyFriendsMessage?: string
 	userId: string
-	dmChannelId?: string
-	serverId?: string
-	serverChannelId?: string
+	routeInfo: {
+		type: SiPher.PageTypes
+		dmChannelId?: string
+		serverId?: string
+		serverChannelId?: string
+	}
+	userNests: Doc<"nests">[] | undefined
 }
 
 export function MainContentLayout({
@@ -36,13 +41,11 @@ export function MainContentLayout({
 	emptyChannelMessage,
 	emptyFriendsMessage,
 	userId,
-	dmChannelId,
-	serverId,
-	serverChannelId,
+	routeInfo,
+	userNests,
 }: MainContentLayoutProps) {
-	const [page, setPage] = React.useState<"friends" | "support" | "dm" | "server">(
-		dmChannelId ? "dm" : serverChannelId ? "server" : "friends"
-	)
+	const { type, dmChannelId, serverId, serverChannelId } = routeInfo
+	const [page, setPage] = React.useState<SiPher.PageTypes>(type)
 	const [friendsPage, setFriendsPage] = React.useState<"all" | "available">("all")
 	const [friendModal, setFriendModal] = React.useState(false)
 	const [currentChannel] = React.useState<SiPher.Channel | null>(null)
@@ -59,8 +62,9 @@ export function MainContentLayout({
 		.find((channel) => channel.id === dmChannelId)
 		?.participants ?? []
 
-	const getParticipantDetails: SiPher.ParticipantDetail[] | undefined = useQuery(api.auth.getParticipantDetails,
-		{ participantIds }
+	const getParticipantDetails: SiPher.ParticipantDetail[] | undefined = useQuery(
+		api.auth.getParticipantDetails,
+		participantIds.length > 0 && dmChannelId ? { participantIds } : "skip"
 	)
 
 	// Combine channel from local DB with participant details from Convex
@@ -86,17 +90,11 @@ export function MainContentLayout({
 
 	// Sync page state with route props for seamless navigation
 	useEffect(() => {
-		if (dmChannelId) {
-			setPage("dm");
-		} else if (serverChannelId) {
-			setPage("server");
-		} else {
-			setPage("friends");
-		}
-	}, [dmChannelId, serverChannelId]);
+		setPage(type);
+	}, [type]);
 
 	// Close mobile channel list when navigating to a channel
-	const handlePageChange = React.useCallback((newPage: "friends" | "support" | "dm" | "server") => {
+	const handlePageChange = React.useCallback((newPage: SiPher.PageTypes) => {
 		setPage(newPage);
 		if (isMobile) {
 			setMobileChannelListOpen(false);
@@ -126,7 +124,6 @@ export function MainContentLayout({
 	return (
 		<>
 			<div className="flex flex-col h-full">
-				{/* Header */}
 				<PageHeader
 					currentChannel={currentChannel}
 					page={page}
@@ -140,14 +137,11 @@ export function MainContentLayout({
 					isMobile={isMobile}
 				/>
 
-				{/* Content Area - Channel List + Main Content */}
 				<div className="flex flex-1 overflow-hidden">
-					{/* Desktop: Always visible channel list */}
-					<div className="hidden md:flex">
+					<div className="hidden md:flex h-full">
 						{channelListContent}
 					</div>
 
-					{/* Mobile: Sheet-based channel list - Discord-style two-panel layout */}
 					{isMobile && (
 						<Sheet open={mobileChannelListOpen} onOpenChange={setMobileChannelListOpen}>
 							<SheetContent side="left" className="w-[calc(100%-3rem)] max-w-[340px] p-0 [&>button]:hidden">
@@ -156,42 +150,33 @@ export function MainContentLayout({
 									<SheetDescription>Navigate between channels and DMs</SheetDescription>
 								</SheetHeader>
 								<div className="flex h-full">
-									{/* Left Rail - Server/Home Icons (Discord-style) */}
 									<div className="flex flex-col items-center w-[72px] shrink-0 bg-muted/50 py-3 gap-2">
-										{/* Home/DMs Button */}
 										<MobileServerIcon
 											isActive={true}
 											isHome
-											label="Direct Messages"
 										>
 											<LogoIcon className="size-6" />
 										</MobileServerIcon>
 
-										{/* Divider */}
 										<div className="w-8 h-0.5 rounded-full bg-border/60 my-1" />
 
-										{/* Discover */}
-										<MobileServerIcon label="Discover">
+										<MobileServerIcon>
 											<CompassIcon className="size-5" weight="fill" />
 										</MobileServerIcon>
 
 										{/* Future: Server icons will go here */}
 										{/* Placeholder for servers */}
 
-										{/* Add Server Button */}
-										<MobileServerIcon label="Add a Server" isAddButton>
+										<MobileServerIcon isAddButton>
 											<Plus className="size-5" />
 										</MobileServerIcon>
 									</div>
 
-									{/* Right Panel - Channel List */}
 									<div className="flex-1 flex flex-col bg-background min-w-0 border-l border-border/30">
-										{/* Panel Header */}
 										<div className="flex items-center px-4 h-12 shrink-0 border-b border-border/30">
 											<span className="text-sm font-semibold text-foreground">Direct Messages</span>
 										</div>
 
-										{/* Channel List Content */}
 										<div className="flex-1 overflow-y-auto">
 											{channelListContent}
 										</div>
@@ -203,33 +188,47 @@ export function MainContentLayout({
 
 					{/* Main Content */}
 					<div className="flex flex-col flex-1 overflow-hidden">
-						{page === "dm" && dmChannelId ? (
-							getParticipantDetails ? (
-								<div className="flex flex-1 min-h-0">
-									<DMChannelContent userId={userId} channelId={dmChannelId!} participantDetails={getParticipantDetails} />
+						{page === "dm" && dmChannelId && getParticipantDetails && (
+							<div className="flex flex-1 min-h-0">
+								<DMChannelContent userId={userId} channelId={dmChannelId} participantDetails={getParticipantDetails} />
+							</div>
+						)}
+
+						{page === "dm" && dmChannelId && !getParticipantDetails && (
+							<div className="flex flex-1 min-h-0">
+								<div className="flex items-center justify-center flex-1">
+									<Spinner className="size-4 animate-spin" />
+									<p className="text-sm text-muted-foreground">Loading...</p>
 								</div>
-							) : (
-								<div className="flex flex-1 min-h-0">
-									<div className="flex items-center justify-center flex-1">
-										<Spinner className="size-4 animate-spin" />
-										<p className="text-sm text-muted-foreground">Loading...</p>
-									</div>
-								</div>
-							)
-						) : page === "server" && serverChannelId ? (
+							</div>
+						)}
+
+						{page === "server" && serverChannelId && (
 							<div className="p-4">
 								<p className="text-sm text-muted-foreground">Server channel {serverChannelId}</p>
 							</div>
-						) : page === "friends" ? (
+						)}
+
+						{page === "friends" && (
 							<FriendsPage
 								userId={userId}
 								friendsPage={friendsPage}
 								socketStatus={socketStatus}
 								emptyMessage={emptyFriendsMessage}
 							/>
-						) : (
-							<SettingsPage />
 						)}
+
+						{page === "nests" && (
+							<div className="p-4">
+								<p className="text-sm text-muted-foreground">Nests</p>
+							</div>
+						)}
+
+						{page === "discover" && <DiscoverPage userNests={userNests ?? []} />}
+
+						{page === "global-nests" && <GlobalNestsPage />}
+
+						{page === "support" && <SettingsPage />}
 					</div>
 				</div>
 			</div>
@@ -242,20 +241,39 @@ export function MainContentLayout({
 	)
 }
 
-// Discord-style mobile server icon component
+function GlobalNestsPage() {
+	return (
+		<div className="flex flex-col flex-1 overflow-hidden">
+			<div className="flex items-center justify-center flex-1">
+				<Spinner className="size-4 animate-spin" />
+				<p className="text-sm text-muted-foreground">Loading...</p>
+			</div>
+		</div>
+	)
+}
+
+function DiscoverPage({ userNests }: { userNests: Doc<"nests">[] }) {
+	return (
+		<div className="flex flex-col flex-1 overflow-hidden">
+			<div className="flex items-center justify-center flex-1">
+				<Spinner className="size-4 animate-spin" />
+				<p className="text-sm text-muted-foreground">Loading...</p>
+			</div>
+		</div>
+	)
+}
+
 function MobileServerIcon({
 	children,
 	isActive,
 	isHome,
 	isAddButton,
-	label,
 	onClick
 }: {
 	children: React.ReactNode
 	isActive?: boolean
 	isHome?: boolean
 	isAddButton?: boolean
-	label?: string
 	onClick?: () => void
 }) {
 	return (

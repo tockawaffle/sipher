@@ -4,6 +4,7 @@
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { nests } from "./schemas/nests";
 import { user } from "./schemas/user";
 
 const Attachment = v.object({
@@ -39,7 +40,12 @@ const Message = v.object({
 
 export const tables = {
 	...user,
-	messages: defineTable(Message),
+	...nests,
+	messages: defineTable(Message)
+		.index("channelId", ["channelId"])
+		.index("channelId_createdTimestamp", ["channelId", "createdTimestamp"])
+		.index("authorId", ["authorId"])
+		.index("guildId", ["guildId"]),
 	attachments: defineTable(Attachment),
 	session: defineTable({
 		expiresAt: v.number(),
@@ -96,6 +102,9 @@ export const tables = {
 			keyId: v.string(),
 			publicKey: v.string(),
 		})),
+		createdAt: v.optional(v.number()),
+		updatedAt: v.optional(v.number()),
+		keyVersion: v.optional(v.number()), // Increments when keys are rotated
 	})
 		.index("userId", ["userId"])
 		.index("userId_keys", ["userId", "oneTimeKeys"])
