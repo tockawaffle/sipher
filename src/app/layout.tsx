@@ -1,59 +1,47 @@
-import { AutoRequestNotifications } from "@/components/notifications/NotificationSettings";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
-import { getToken } from "@/lib/auth/auth-server";
-import { ConvexClientProvider } from "@/lib/providers/Convex";
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
+const fontSans = Inter({
+	subsets: ["latin"],
+	variable: "--font-sans",
+});
+
+const fontSerif = Playfair_Display({
+	subsets: ["latin"],
+	variable: "--font-serif",
+});
+
+const fontMono = JetBrains_Mono({
+	subsets: ["latin"],
+	variable: "--font-mono",
+});
+
 export const metadata: Metadata = {
-	title: "SiPher - Don't trust us. We don't trust you.",
-	description: "SiPher is a platform made for communication. Secure? Maybe. Reliable? I don't think so. We don't trust you. We don't trust us. We don't trust anyone.",
+	title: "Sipher",
+	description: "A federated social media platform for the modern age.",
 	icons: {
-		icon: [
-			{
-				url: "/assets/logo/logo-white.svg",
-				href: "/assets/logo/logo-white.svg",
-				media: "(prefers-color-scheme: dark)",
-				type: "image/svg+xml",
-				sizes: "32x32",
-				rel: "icon"
-			},
-			{
-				url: "/assets/logo/logo-dark.svg",
-				href: "/assets/logo/logo-dark.svg",
-				media: "(prefers-color-scheme: light)",
-				type: "image/svg+xml",
-				sizes: "32x32",
-				rel: "icon"
-			}
-		]
-	}
+		icon: "/favicon.svg",
+	},
+	manifest: "/manifest.json",
+	themeColor: "#18181b",
+	viewport: {
+		width: "device-width",
+		initialScale: 1,
+		maximumScale: 1,
+		userScalable: false,
+	},
 };
 
-export default async function RootLayout({
+export default function RootLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-	const token = await getToken();
 	return (
-		<html lang="en" suppressHydrationWarning>
-			<body
-				className="antialiased min-h-screen bg-background"
-			>
-				<ConvexClientProvider initialToken={token ?? null}>
-					<ThemeProvider
-						attribute="class"
-						defaultTheme="system"
-						enableSystem
-						disableTransitionOnChange
-					>
-						{children}
-						<AutoRequestNotifications />
-					</ThemeProvider>
-					<Toaster richColors />
-				</ConvexClientProvider>
+		<html lang="en">
+			<body className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} antialiased`}>
+				{children}
 			</body>
 		</html>
 	);

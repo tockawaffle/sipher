@@ -10,7 +10,6 @@
 	"editor.formatOnSave": true,
 	"editor.formatOnPaste": true,
 	"editor.formatOnType": true,
-	"typescript.preferences.quoteStyle": "double",
 	"editor.formatOnSaveMode": "file",
 	"editor.codeActionsOnSave": {
 		"source.organizeImports": "explicit"
