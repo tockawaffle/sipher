@@ -1,0 +1,11 @@
+<svg class="icon-192" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+	<rect width="512" height="512" fill="#080808" />
+	<rect x="32" y="32" width="448" height="448" stroke="#C8F000" stroke-width="6" fill="none" />
+	<polygon points="80,32 32,32 32,80" fill="#C8F000" opacity="0.15" />
+	<polygon points="432,32 480,32 480,80" fill="#C8F000" opacity="0.15" />
+	<polygon points="32,432 32,480 80,480" fill="#C8F000" opacity="0.15" />
+	<polygon points="480,432 480,480 432,480" fill="#C8F000" opacity="0.15" />
+	<path d="M 180 160 L 330 160 L 330 240 L 180 240 L 180 352 L 330 352" stroke="#C8F000" stroke-width="28"
+		stroke-linecap="square" fill="none" />
+	<rect x="32" y="248" width="448" height="6" fill="#FF3C3C" opacity="0.25" />
+</svg>

@@ -1,36 +1,35 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Playfair_Display } from "next/font/google";
+import { ThemeProvider } from "next-themes";
+import { Bebas_Neue, DM_Sans, Space_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 
-const fontSans = Inter({
+const fontSans = DM_Sans({
 	subsets: ["latin"],
+	weight: ["300", "400", "500"],
 	variable: "--font-sans",
 });
 
-const fontSerif = Playfair_Display({
+const fontMono = Space_Mono({
 	subsets: ["latin"],
-	variable: "--font-serif",
+	weight: ["400", "700"],
+	style: ["normal", "italic"],
+	variable: "--font-mono",
 });
 
-const fontMono = JetBrains_Mono({
+const fontDisplay = Bebas_Neue({
 	subsets: ["latin"],
-	variable: "--font-mono",
+	weight: "400",
+	variable: "--font-display",
 });
 
 export const metadata: Metadata = {
 	title: "Sipher",
 	description: "A federated social media platform for the modern age.",
 	icons: {
-		icon: "/favicon.svg",
+		icon: "/logo/sipher.svg",
 	},
-	manifest: "/manifest.json",
-	themeColor: "#18181b",
-	viewport: {
-		width: "device-width",
-		initialScale: 1,
-		maximumScale: 1,
-		userScalable: false,
-	},
+	manifest: "/manifest.json"
 };
 
 export default function RootLayout({
@@ -39,9 +38,17 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
-			<body className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} antialiased`}>
-				{children}
+		<html suppressHydrationWarning>
+			<body className={`${fontSans.variable} ${fontMono.variable} ${fontDisplay.variable} antialiased`}>
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="dark"
+					enableSystem
+					disableTransitionOnChange
+				>
+					<Toaster />
+					{children}
+				</ThemeProvider>
 			</body>
 		</html>
 	);
