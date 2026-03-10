@@ -15,7 +15,7 @@ export async function GET() {
 	debug("GET /discover – found %d peer(s)", peers.length);
 
 	return NextResponse.json({
-		url: process.env.NEXT_PUBLIC_APP_URL,
+		url: process.env.BETTER_AUTH_URL,
 		publicKey: process.env.FEDERATION_PUBLIC_KEY,
 		peers
 	});

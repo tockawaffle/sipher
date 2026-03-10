@@ -28,3 +28,5 @@ export async function generateKeyPair() {
 	console.log("Keys generated successfully");
 	return keys;
 }
+
+generateKeyPair();

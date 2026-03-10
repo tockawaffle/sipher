@@ -11,6 +11,11 @@ import EmailService from "./mail";
 const isTest = process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
 
+const federationKeysExist = process.env.FEDERATION_PUBLIC_KEY && process.env.FEDERATION_PRIVATE_KEY;
+if (!federationKeysExist) {
+	throw new Error("FEDERATION_PUBLIC_KEY and FEDERATION_PRIVATE_KEY must be set, please run `bun run keygen` to generate them.");
+}
+
 export const auth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET!,
 	baseURL: process.env.BETTER_AUTH_URL ?? (process.env.NODE_ENV === "test" ? "http://localhost:3000" : undefined),
