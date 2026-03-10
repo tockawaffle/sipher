@@ -1,6 +1,7 @@
 // tests/helpers/db.ts
 import db from "@/lib/db";
 import { rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import forge from "node-forge";
 
 export function generateKeypair() {
@@ -40,7 +41,33 @@ export async function seedChallenge(overrides?: Partial<typeof rotateChallengeTo
 	return row
 }
 
+export async function getServerByUrl(url: string) {
+	return (await db.select().from(serverRegistry).where(eq(serverRegistry.url, url)))[0]
+}
+
+export async function clearServerRegistry() {
+	return await db.delete(serverRegistry)
+}
+
+export async function clearRotateChallengeTokens() {
+	return await db.delete(rotateChallengeTokens)
+}
+
+export async function insertServerEcho(url: string, publicKey: string) {
+	await db.insert(serverRegistry).values({
+		id: crypto.randomUUID(),
+		url,
+		publicKey,
+		lastSeen: new Date(),
+		createdAt: new Date(),
+		updatedAt: new Date(),
+		isHealthy: true,
+	}).onConflictDoNothing()
+}
+
 export async function clearTables() {
-	await db.delete(rotateChallengeTokens)
-	await db.delete(serverRegistry)
+	return await Promise.all([
+		clearRotateChallengeTokens(),
+		clearServerRegistry(),
+	])
 }

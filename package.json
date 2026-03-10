@@ -17,6 +17,7 @@
 		"email:dev": "cross-env NODE_ENV=development email dev --dir src/lib/mail/templates --port 3001",
 		"test": "cross-env NODE_ENV=test playwright test",
 		"test:key": "cross-env NODE_ENV=test playwright test tests/key.test.ts",
+		"test:discover": "cross-env NODE_ENV=test playwright test tests/discover.test.ts",
 		"build": "next build",
 		"start": "cross-env NODE_ENV=production node src/server.ts",
 		"db:push": "drizzle-kit push",

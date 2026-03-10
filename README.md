@@ -14,6 +14,9 @@ Your identity is `you@yourserver.com`. Your server, your data, your rules.
 ## Roadmap
 
 - **Phase 1** — Core federation. Two servers can follow each other, post, and see each other's posts.
+- - [X] — Two servers can follow each other, trust their keys and rotate them.
+- - [ ] — One server can create posts, have users following each other and dms (unencrypted for now) works.
+- - [ ] — Two servers can fetch posts, follows and other data from their users, including DMs.
 - **Phase 2** — Server trust scoring and a public vouch ledger.
 - **Phase 3** — Opt-in relay network for censorship resistance.
 - **Phase 4** — End-to-end encryption via TBD.

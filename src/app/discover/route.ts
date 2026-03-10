@@ -33,14 +33,22 @@ async function upsertServer(url: string, publicKey: string) {
 	}).onConflictDoNothing();
 }
 
-const publicKeySchema = z.string().refine((key) => {
+const publicKeySchema = z.string().superRefine((key, ctx) => {
+	let pub: forge.pki.rsa.PublicKey;
 	try {
-		const pub = forge.pki.publicKeyFromPem(key);
-		return pub.n.bitLength() >= 4096;
+		pub = forge.pki.publicKeyFromPem(key) as forge.pki.rsa.PublicKey;
 	} catch {
-		return false;
+		ctx.addIssue({ code: "custom", message: "Public key is not a valid PEM-encoded RSA key", input: key });
+		return;
 	}
-}, { message: "Invalid public key" });
+	if (!pub.n) {
+		ctx.addIssue({ code: "custom", message: "Public key is not an RSA key", input: key });
+		return;
+	}
+	if (pub.n.bitLength() < 2048) {
+		ctx.addIssue({ code: "custom", message: `RSA key must be at least 2048 bits (got ${pub.n.bitLength()})`, input: key });
+	}
+});
 
 const schema = z.discriminatedUnion("method", [
 	z.object({
@@ -93,6 +101,8 @@ async function registerServer(validated: Extract<z.infer<typeof schema>, { metho
 		return NextResponse.json({ error: "Invalid server" }, { status: 400 });
 	} else if (response.publicKey !== validated.publicKey) {
 		debug("REGISTER – public key mismatch: provided vs fetched");
+		debug("REGISTER – provided public key: %s", validated.publicKey);
+		debug("REGISTER – fetched public key: %s", response.publicKey);
 		return NextResponse.json({ error: "Invalid public key" }, { status: 400 });
 	}
 
