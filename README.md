@@ -27,6 +27,16 @@ Your identity is `you@yourserver.com`. Your server, your data, your rules.
 
 **Marcello Brito** (Tocka) — [tockanest.com](https://tockanest.com)
 
+## Security
+
+SiPher implements custom federation and cryptographic protocols. I am not a professional cryptographer or security researcher — this system has not been audited and almost certainly contains multiple vulnerabilities I am not aware of.
+
+If you find one, please open an issue or contact me directly at tocka@tockanest.com. Responsible disclosure is appreciated.
+
+Contributions from people with security or cryptography experience are especially welcome, even if just pure criticism.
+
+**Do not use SiPher in any context where your physical safety depends on it — not yet.**
+
 ## License
 
 [AGPL-3.0](./LICENSE)
