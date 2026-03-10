@@ -26,9 +26,9 @@
 			"@/*": [
 				"./src/*"
 			],
-			"@app": [
-				"./src/app"
-			]
+			"@/plugins/*": [
+				"./src/lib/plugins/*"
+			],
 		}
 	},
 	"include": [

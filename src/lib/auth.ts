@@ -1,7 +1,9 @@
+import { federation } from "@/plugins/server/federation";
+import { sipherSocial } from '@/plugins/server/social';
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
-import { bearer, haveIBeenPwned, testUtils, twoFactor, username } from "better-auth/plugins";
+import { bearer, haveIBeenPwned, openAPI, testUtils, twoFactor, username } from "better-auth/plugins";
 import db from "./db";
 import * as schema from "./db/schema";
 import EmailService from "./mail";
@@ -54,11 +56,24 @@ export const auth = betterAuth({
 		twoFactor(),
 		bearer(),
 		haveIBeenPwned(),
+		sipherSocial(),
+		federation(),
+		openAPI(),
 		testUtils() // TODO: Add a conditional plugin for test utils in development
 	],
 	// This is disabled by default, but I'll keep this here for ease of mind.
 	// You never know when companies will change their minds and decide to start tracking you.
 	telemetry: {
 		enabled: false
+	},
+	user: {
+		additionalFields: {
+			isPrivate: {
+				type: "boolean",
+				defaultValue: false,
+				required: false,
+				index: false,
+			}
+		}
 	}
 });
