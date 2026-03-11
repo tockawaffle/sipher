@@ -1,5 +1,5 @@
 import { config } from 'dotenv'
-import { createServer } from 'http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import next from 'next'
 
 config({ path: '.env.local' })
@@ -9,7 +9,7 @@ const app = next({ dev })
 const handle = app.getRequestHandler()
 
 app.prepare().then(() => {
-	createServer((req, res) => {
+	createServer(async (req: IncomingMessage, res: ServerResponse) => {
 		handle(req, res)
 	}).listen(port)
 

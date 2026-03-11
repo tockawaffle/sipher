@@ -1,8 +1,9 @@
 import db from "@/lib/db";
 import { serverRegistry } from "@/lib/db/schema";
 import { decryptPayload } from "@/lib/federation/keytools";
+import { assertSafeUrl, UrlGuardError } from "@/lib/federation/url-guard";
 import createDebug from "debug";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import forge from "node-forge";
 import { z } from "zod";
@@ -11,7 +12,10 @@ const debug = createDebug("app:discover");
 
 export async function GET() {
 	debug("GET /discover – fetching healthy peers");
-	const peers = await db.select().from(serverRegistry).where(eq(serverRegistry.isHealthy, true));
+	const peers = await db.select({
+		url: serverRegistry.url,
+		isHealthy: serverRegistry.isHealthy,
+	}).from(serverRegistry).where(eq(serverRegistry.isHealthy, true)).orderBy(desc(serverRegistry.lastSeen));
 	debug("GET /discover – found %d peer(s)", peers.length);
 
 	return NextResponse.json({
@@ -50,33 +54,55 @@ const publicKeySchema = z.string().superRefine((key, ctx) => {
 	}
 });
 
-const schema = z.discriminatedUnion("method", [
-	z.object({
-		method: z.literal("DISCOVER"),
-		publicKey: publicKeySchema,
-		signature: z.string().refine((signature) => {
-			try {
-				const sig = decryptPayload(signature, process.env.FEDERATION_PRIVATE_KEY!);
-				const data = JSON.parse(sig);
-				return data.publicKey != null && data.url != null;
-			} catch {
-				return false;
-			}
-		}, { message: "Invalid signature" }),
-	}),
-	z.object({
-		method: z.literal("REGISTER"),
-		url: z.url(),
-		publicKey: publicKeySchema,
-	})
-]);
+function fingerprintKey(pem: string): string {
+	const md = forge.md.sha256.create();
+	md.update(pem, "utf8");
+	return md.digest().toHex();
+}
 
-async function discoverServer(validated: Extract<z.infer<typeof schema>, { method: "DISCOVER" }>) {
+const discoverSchema = z.object({
+	method: z.literal("DISCOVER"),
+	publicKey: publicKeySchema,
+	signature: z.string(),
+}).superRefine((data, ctx) => {
+	try {
+		const decrypted = decryptPayload(data.signature, process.env.FEDERATION_PRIVATE_KEY!);
+		const parsed = JSON.parse(decrypted);
+		// The signature contains a SHA-256 fingerprint of the public key
+		// (since the full PEM exceeds RSA-OAEP's size limit) plus a url.
+		if (parsed.publicKeyFingerprint !== fingerprintKey(data.publicKey)) {
+			ctx.addIssue({ code: "custom", message: "Signature does not match the provided public key" });
+		}
+		if (!parsed.url) {
+			ctx.addIssue({ code: "custom", message: "Signature is missing the url field" });
+		}
+	} catch {
+		ctx.addIssue({ code: "custom", message: "Invalid signature" });
+	}
+});
+
+const registerSchema = z.object({
+	method: z.literal("REGISTER"),
+	url: z.url(),
+	publicKey: publicKeySchema,
+});
+
+async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	debug("DISCOVER – looking up server by public key");
 	const server = await db.select().from(serverRegistry).where(eq(serverRegistry.publicKey, validated.publicKey));
 	if (server.length === 0) {
 		debug("DISCOVER – server not found");
 		return NextResponse.json({ error: "Server not found" }, { status: 404 });
+	}
+
+	try {
+		assertSafeUrl(server[0].url);
+	} catch (err) {
+		debug("DISCOVER – stored URL failed SSRF check: %s", server[0].url);
+		if (err instanceof UrlGuardError) {
+			return NextResponse.json({ error: "Stored server URL is blocked" }, { status: 400 });
+		}
+		throw err;
 	}
 
 	const confirmations = {
@@ -86,16 +112,38 @@ async function discoverServer(validated: Extract<z.infer<typeof schema>, { metho
 
 	if (server[0].publicKey === validated.publicKey) confirmations.sameKeyOnServer = true;
 	debug("DISCOVER – fetching public key from federation server %s", server[0].url);
-	const federationResponse = await (await fetch(server[0].url + "/discover")).json();
-	if (federationResponse.publicKey === validated.publicKey) confirmations.sameKeyOnFetch = true;
+	try {
+		const federationResponse = await (await fetch(server[0].url + "/discover")).json();
+		if (federationResponse.publicKey === validated.publicKey) confirmations.sameKeyOnFetch = true;
+	} catch (err) {
+		debug("DISCOVER – fetch to %s failed: %o", server[0].url, err);
+		return NextResponse.json({ error: "Failed to reach the federation server" }, { status: 502 });
+	}
 
 	debug("DISCOVER – confirmations: %o", confirmations);
 	return NextResponse.json(confirmations);
 }
 
-async function registerServer(validated: Extract<z.infer<typeof schema>, { method: "REGISTER" }>) {
+async function registerServer(validated: z.infer<typeof registerSchema>) {
+	try {
+		assertSafeUrl(validated.url);
+	} catch (err) {
+		debug("REGISTER – URL failed SSRF check: %s", validated.url);
+		if (err instanceof UrlGuardError) {
+			return NextResponse.json({ error: err.message }, { status: 400 });
+		}
+		throw err;
+	}
+
 	debug("REGISTER – fetching /discover from %s to validate server", validated.url);
-	const response = await (await fetch(validated.url + "/discover")).json();
+	let response: { publicKey?: string };
+	try {
+		response = await (await fetch(validated.url + "/discover")).json();
+	} catch (err) {
+		debug("REGISTER – fetch to %s failed: %o", validated.url, err);
+		return NextResponse.json({ error: "Failed to reach the server" }, { status: 502 });
+	}
+
 	if (!response.publicKey) {
 		debug("REGISTER – remote server returned no public key");
 		return NextResponse.json({ error: "Invalid server" }, { status: 400 });
@@ -129,19 +177,23 @@ export async function POST(request: NextRequest) {
 	const body = await request.json();
 	debug("POST /discover – method: %s", body?.method);
 
-	const validated = schema.safeParse(body);
-
-	if (!validated.success) {
-		debug("POST /discover – validation failed: %o", validated.error.message);
-		return NextResponse.json({ error: validated.error.message }, { status: 400 });
+	if (body?.method === "DISCOVER") {
+		const validated = discoverSchema.safeParse(body);
+		if (!validated.success) {
+			debug("POST /discover – DISCOVER validation failed: %o", validated.error.message);
+			return NextResponse.json({ error: validated.error.message }, { status: 400 });
+		}
+		return await discoverServer(validated.data);
 	}
 
-	switch (validated.data.method) {
-		case "DISCOVER":
-			return await discoverServer(validated.data);
-		case "REGISTER":
-			return await registerServer(validated.data);
-		default:
-			return NextResponse.json({ error: "Invalid method" }, { status: 400 });
+	if (body?.method === "REGISTER") {
+		const validated = registerSchema.safeParse(body);
+		if (!validated.success) {
+			debug("POST /discover – REGISTER validation failed: %o", validated.error.message);
+			return NextResponse.json({ error: validated.error.message }, { status: 400 });
+		}
+		return await registerServer(validated.data);
 	}
+
+	return NextResponse.json({ error: "Invalid method" }, { status: 400 });
 }

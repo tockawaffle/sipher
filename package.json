@@ -19,6 +19,7 @@
 		"keygen": "bun run src/lib/federation/keygen.ts",
 		"test:key": "cross-env NODE_ENV=test playwright test tests/key.test.ts",
 		"test:discover": "cross-env NODE_ENV=test playwright test tests/discover.test.ts",
+		"test:attacks": "cross-env NODE_ENV=test playwright test tests/attacks.test.ts",
 		"build": "next build",
 		"start": "cross-env NODE_ENV=production node src/server.ts",
 		"db:push": "drizzle-kit push",

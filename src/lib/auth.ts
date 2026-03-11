@@ -7,6 +7,7 @@ import { bearer, haveIBeenPwned, openAPI, testUtils, twoFactor, username } from 
 import db from "./db";
 import * as schema from "./db/schema";
 import EmailService from "./mail";
+import minioClient from "./plugins/server/storage/minio.client";
 
 const isTest = process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
@@ -16,13 +17,14 @@ if (!federationKeysExist) {
 	throw new Error("FEDERATION_PUBLIC_KEY and FEDERATION_PRIVATE_KEY must be set, please run `bun run keygen` to generate them.");
 }
 
-export const auth = betterAuth({
+const bAuth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET!,
 	baseURL: process.env.BETTER_AUTH_URL ?? (process.env.NODE_ENV === "test" ? "http://localhost:3000" : undefined),
 	experimental: {
 		joins: true
 	},
 	emailAndPassword: {
+		autoSignIn: false,
 		enabled: true,
 	},
 	emailVerification: {
@@ -82,3 +84,8 @@ export const auth = betterAuth({
 		}
 	}
 });
+
+export const auth: typeof bAuth & { minio: typeof minioClient } = {
+	...bAuth,
+	minio: minioClient
+}

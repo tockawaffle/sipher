@@ -10,14 +10,18 @@ const postContentBlockSchema = z.discriminatedUnion("type", [
 		type: z.literal("image"),
 		url: z.url("Image must be a valid URL"),
 		index: z.number().min(0, "Index must be a positive number"),
+		size: z.number().min(0, "Size must be a positive number"),
 	}),
 	z.object({
 		type: z.literal("video"),
 		url: z.url("Video must be a valid URL"),
+		size: z.number().min(0, "Size must be a positive number"),
+		index: z.number().min(0, "Index must be a positive number"),
 	}),
 	z.object({
 		type: z.literal("audio"),
 		url: z.url("Audio must be a valid URL"),
+		size: z.number().min(0, "Size must be a positive number"),
 	}),
 	z.object({
 		type: z.literal("link"),

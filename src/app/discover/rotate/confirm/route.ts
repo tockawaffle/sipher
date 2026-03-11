@@ -1,10 +1,10 @@
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
 import { decryptPayload } from "@/lib/federation/keytools";
+import createDebug from "debug";
 import { eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import createDebug from "debug";
 
 const debug = createDebug("app:discover:rotate:confirm");
 
@@ -31,8 +31,8 @@ const debug = createDebug("app:discover:rotate:confirm");
  *    - If both match: update serverRegistry with newPublicKey and delete the challenge.
  *
  * What each check proves:
- * - signedOldChallenge match → SB holds the old private key (identity proof — "they are who they say they are")
- * - signedNewChallenge match → SB holds the new private key (ownership proof — "they own the key they want to rotate to")
+ * - signedOldChallenge match → SB holds the old private key (identity proof: "they are who they say they are")
+ * - signedNewChallenge match → SB holds the new private key (ownership proof: "they own the key they want to rotate to")
  * - re-encryption with SA's public key → SB fetched SA's identity from /discover
  *
  * TODO: on success, announce the completed rotation to other known federation peers
@@ -58,76 +58,74 @@ export async function POST(request: NextRequest) {
 	}
 
 	debug("POST /discover/rotate/confirm – fetching pending challenge for %s", validated.data.serverUrl);
-	const [challenge] = await db.select().from(rotateChallengeTokens)
-		.where(eq(rotateChallengeTokens.serverUrl, validated.data.serverUrl));
 
-	if (!challenge) {
-		debug("POST /discover/rotate/confirm – no pending challenge found");
-		return NextResponse.json({ error: "No pending rotation challenge found for this server." }, { status: 404 });
-	}
+	// transaction to ensure that the challenge is deleted and the server registry is updated atomically and that there's no race condition.
+	return await db.transaction(async (tx) => {
+		const [challenge] = await tx.select().from(rotateChallengeTokens)
+			.where(eq(rotateChallengeTokens.serverUrl, validated.data.serverUrl))
+			.for("update");
 
-	if (challenge.expiresAt < new Date()) {
-		debug("POST /discover/rotate/confirm – challenge expired at %s", challenge.expiresAt.toISOString());
-		await db.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
-		return NextResponse.json({ error: "Challenge token has expired." }, { status: 400 });
-	}
+		if (!challenge) {
+			debug("POST /discover/rotate/confirm – no pending challenge found");
+			return NextResponse.json({ error: "No pending rotation challenge found for this server." }, { status: 404 });
+		}
 
-	if (challenge.attemptsLeft <= 0) {
-		debug("POST /discover/rotate/confirm – no attempts left, blacklisting %s", challenge.serverUrl);
-		await db.insert(blacklistedServers).values({
-			id: crypto.randomUUID(),
-			serverUrl: challenge.serverUrl,
-			reason: "Too many failed attempts to confirm key rotation challenge",
-			createdAt: new Date(),
-		});
-		await db.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
-		return NextResponse.json({ error: "Your server has been blacklisted. Please contact support to unblacklist your server." }, { status: 403 });
-	}
+		if (challenge.expiresAt < new Date()) {
+			debug("POST /discover/rotate/confirm – challenge expired at %s", challenge.expiresAt.toISOString());
+			await tx.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
+			return NextResponse.json({ error: "Challenge token has expired." }, { status: 400 });
+		}
 
-	debug("POST /discover/rotate/confirm – %d attempt(s) left, decrypting challenges", challenge.attemptsLeft);
-	let decryptedOld: string;
-	let decryptedNew: string;
-	try {
-		decryptedOld = decryptPayload(validated.data.signedOldChallenge, process.env.FEDERATION_PRIVATE_KEY!);
-		decryptedNew = decryptPayload(validated.data.signedNewChallenge, process.env.FEDERATION_PRIVATE_KEY!);
-	} catch {
-		debug("POST /discover/rotate/confirm – decryption failed, decrementing attempts");
-		await db.update(rotateChallengeTokens).set({
-			attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
-		}).where(eq(rotateChallengeTokens.id, challenge.id))
-		return NextResponse.json({
-			error: `Failed to decrypt one or both challenges. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
-		}, { status: 400 });
-	}
+		if (challenge.attemptsLeft <= 0) {
+			debug("POST /discover/rotate/confirm – no attempts left, blacklisting %s", challenge.serverUrl);
+			await tx.insert(blacklistedServers).values({
+				id: crypto.randomUUID(),
+				serverUrl: challenge.serverUrl,
+				reason: "Too many failed attempts to confirm key rotation challenge",
+				createdAt: new Date(),
+			});
+			await tx.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
+			return NextResponse.json({ error: "Your server has been blacklisted. Please contact support to unblacklist your server." }, { status: 403 });
+		}
 
-	// Both plaintexts must match their stored tokens.
-	// A mismatch on oldKeyChallenge means the requester does not hold the registered private key.
-	// A mismatch on newKeyChallenge means the requester does not actually own the new key.
-	if (decryptedOld !== challenge.oldKeyToken || decryptedNew !== challenge.newKeyToken) {
-		debug("POST /discover/rotate/confirm – token mismatch (old=%s, new=%s), decrementing attempts",
-			decryptedOld === challenge.oldKeyToken ? "ok" : "MISMATCH",
-			decryptedNew === challenge.newKeyToken ? "ok" : "MISMATCH",
-		);
-		await db.update(rotateChallengeTokens).set({
-			attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
-		}).where(eq(rotateChallengeTokens.id, challenge.id));
-		return NextResponse.json({
-			error: `Challenge mismatch. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
-		}, { status: 400 });
-	}
+		debug("POST /discover/rotate/confirm – %d attempt(s) left, decrypting challenges", challenge.attemptsLeft);
+		let decryptedOld: string;
+		let decryptedNew: string;
+		try {
+			decryptedOld = decryptPayload(validated.data.signedOldChallenge, process.env.FEDERATION_PRIVATE_KEY!);
+			decryptedNew = decryptPayload(validated.data.signedNewChallenge, process.env.FEDERATION_PRIVATE_KEY!);
+		} catch {
+			debug("POST /discover/rotate/confirm – decryption failed, decrementing attempts");
+			await tx.update(rotateChallengeTokens).set({
+				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
+			}).where(eq(rotateChallengeTokens.id, challenge.id))
+			return NextResponse.json({
+				error: `Failed to decrypt one or both challenges. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+			}, { status: 400 });
+		}
 
-	// Both challenges passed:
-	// — SA holds the old private key (they are who they claim to be)
-	// — SA holds the new private key (they own the key they want to rotate to)
-	// — SA knows our public key (they fetched our identity to re-encrypt)
-	debug("POST /discover/rotate/confirm – both challenges passed, rotating key for %s", challenge.serverUrl);
-	await db.update(serverRegistry).set({
-		publicKey: challenge.newPublicKey,
-		updatedAt: new Date(),
-	}).where(eq(serverRegistry.url, challenge.serverUrl));
+		if (decryptedOld !== challenge.oldKeyToken || decryptedNew !== challenge.newKeyToken) {
+			debug("POST /discover/rotate/confirm – token mismatch (old=%s, new=%s), decrementing attempts",
+				decryptedOld === challenge.oldKeyToken ? "ok" : "MISMATCH",
+				decryptedNew === challenge.newKeyToken ? "ok" : "MISMATCH",
+			);
+			await tx.update(rotateChallengeTokens).set({
+				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
+			}).where(eq(rotateChallengeTokens.id, challenge.id));
+			return NextResponse.json({
+				error: `Challenge mismatch. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+			}, { status: 400 });
+		}
 
-	await db.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
+		debug("POST /discover/rotate/confirm – both challenges passed, rotating key for %s", challenge.serverUrl);
+		await tx.update(serverRegistry).set({
+			publicKey: challenge.newPublicKey,
+			updatedAt: new Date(),
+		}).where(eq(serverRegistry.url, challenge.serverUrl));
 
-	debug("POST /discover/rotate/confirm – key rotation complete for %s", challenge.serverUrl);
-	return NextResponse.json({ message: "Key rotation confirmed successfully." });
+		await tx.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
+
+		debug("POST /discover/rotate/confirm – key rotation complete for %s", challenge.serverUrl);
+		return NextResponse.json({ message: "Key rotation confirmed successfully." });
+	});
 }

@@ -60,6 +60,23 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({ error: "Your server is already registered with this public key." }, { status: 400 });
 	}
 
+	// Check for existing pending challenges, only one active challenge per server is allowed.
+	// This got removed by accident on a previous commit.
+	const [existing] = await db.select().from(rotateChallengeTokens)
+		.where(eq(rotateChallengeTokens.serverUrl, validated.data.url.toString()));
+
+	if (existing) {
+		if (existing.expiresAt > new Date()) {
+			debug("POST /discover/rotate/init – active challenge already exists, rejecting");
+			return NextResponse.json(
+				{ error: "A rotation challenge is already pending for this server." },
+				{ status: 409 },
+			);
+		}
+		debug("POST /discover/rotate/init – deleting expired challenge");
+		await db.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, existing.id));
+	}
+
 	// Issue two independent challenges:
 	//
 	// oldKeyChallenge — encrypted with the SA's CURRENT registered public key.

@@ -102,23 +102,6 @@ export const twoFactor = pgTable(
   ],
 );
 
-export const serverRegistry = pgTable(
-  "server_registry",
-  {
-    id: text("id").primaryKey(),
-    url: text("url").notNull().unique(),
-    publicKey: text("public_key").notNull().unique(),
-    lastSeen: timestamp("last_seen").notNull(),
-    createdAt: timestamp("created_at").notNull(),
-    updatedAt: timestamp("updated_at").notNull(),
-    isHealthy: boolean("is_healthy").notNull(),
-  },
-  (table) => [
-    uniqueIndex("serverRegistry_publicKey_uidx").on(table.publicKey),
-    index("serverRegistry_lastSeen_idx").on(table.lastSeen),
-  ],
-);
-
 export const posts = pgTable("posts", {
   id: text("id").primaryKey(),
   content: jsonb("content").notNull(),
@@ -174,6 +157,23 @@ export const blocks = pgTable("blocks", {
     .references(() => user.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull(),
 });
+
+export const serverRegistry = pgTable(
+  "server_registry",
+  {
+    id: text("id").primaryKey(),
+    url: text("url").notNull().unique(),
+    publicKey: text("public_key").notNull().unique(),
+    lastSeen: timestamp("last_seen").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    isHealthy: boolean("is_healthy").notNull(),
+  },
+  (table) => [
+    uniqueIndex("serverRegistry_publicKey_uidx").on(table.publicKey),
+    index("serverRegistry_lastSeen_idx").on(table.lastSeen),
+  ],
+);
 
 export const rotateChallengeTokens = pgTable(
   "rotate_challenge_tokens",
