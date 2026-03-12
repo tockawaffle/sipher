@@ -13,8 +13,8 @@
  * After fixing the vulnerabilitie, the tests were updated to match the new behavior.
  * -----
  */
+import { encryptPayload, fingerprintKey } from "@/lib/federation/keytools"
 import { expect, test } from "@playwright/test"
-import forge from "node-forge"
 import http from "node:http"
 import {
 	clearTables,
@@ -27,33 +27,28 @@ import {
 
 const BASE = "http://localhost:3000"
 
-function encryptPayload(payload: string, recipientPublicKeyPem: string) {
-	const pub = forge.pki.publicKeyFromPem(recipientPublicKeyPem)
-	return forge.util.encode64(
-		pub.encrypt(forge.util.encodeUtf8(payload), "RSA-OAEP"),
+function getOwnEncryptionPublicKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!, "base64"))
+}
+
+function buildBadEnvelope() {
+	return encryptPayload(
+		JSON.stringify({
+			signingOldSignature: "wrong",
+			signingNewSignature: "wrong",
+			encryptionOldPlaintext: "wrong",
+			encryptionNewPlaintext: "wrong",
+		}),
+		getOwnEncryptionPublicKey(),
 	)
 }
 
-function fingerprintKey(pem: string): string {
-	const md = forge.md.sha256.create()
-	md.update(pem, "utf8")
-	return md.digest().toHex()
-}
-
-function generate4096Keypair() {
-	const kp = forge.pki.rsa.generateKeyPair(4096)
-	return {
-		publicKey: forge.pki.publicKeyToPem(kp.publicKey),
-		privateKey: forge.pki.privateKeyToPem(kp.privateKey),
-	}
-}
-
-function createTrapServer(fakePublicKey: string) {
+function createTrapServer(fakePublicKey: string, fakeEncryptionPublicKey: string) {
 	const hits: { method: string; url: string }[] = []
 	const server = http.createServer((req, res) => {
 		hits.push({ method: req.method!, url: req.url! })
 		res.writeHead(200, { "Content-Type": "application/json" })
-		res.end(JSON.stringify({ publicKey: fakePublicKey }))
+		res.end(JSON.stringify({ publicKey: fakePublicKey, encryptionPublicKey: fakeEncryptionPublicKey }))
 	})
 
 	return {
@@ -75,8 +70,8 @@ test.afterEach(async () => { await clearTables() })
 // ---------------------------------------------------------------------------
 test.describe("SSRF protection", () => {
 	test("REGISTER rejects loopback URLs", async ({ request }) => {
-		const { publicKey: fakePub } = generateKeypair()
-		const trap = createTrapServer(fakePub)
+		const keys = generateKeypair()
+		const trap = createTrapServer(keys.signingPublicKey, keys.encryptionPublicKey)
 		const port = await trap.start()
 
 		try {
@@ -84,7 +79,8 @@ test.describe("SSRF protection", () => {
 				data: {
 					method: "REGISTER",
 					url: `http://127.0.0.1:${port}`,
-					publicKey: fakePub,
+					publicKey: keys.signingPublicKey,
+					encryptionPublicKey: keys.encryptionPublicKey,
 				},
 			})
 
@@ -92,7 +88,6 @@ test.describe("SSRF protection", () => {
 			const body = await res.json()
 			expect(body.error).toMatch(/blocked/i)
 
-			// The trap server should NOT have been hit
 			expect(trap.hits.length).toBe(0)
 		} finally {
 			await trap.stop()
@@ -107,9 +102,14 @@ test.describe("SSRF protection", () => {
 		]
 
 		for (const url of internalUrls) {
-			const { publicKey } = generateKeypair()
+			const keys = generateKeypair()
 			const res = await request.post(`${BASE}/discover`, {
-				data: { method: "REGISTER", url, publicKey },
+				data: {
+					method: "REGISTER",
+					url,
+					publicKey: keys.signingPublicKey,
+					encryptionPublicKey: keys.encryptionPublicKey,
+				},
 			})
 
 			expect(res.status()).toBe(400)
@@ -119,25 +119,25 @@ test.describe("SSRF protection", () => {
 	})
 
 	test("DISCOVER rejects stored internal URLs", async ({ request }) => {
-		const { publicKey: maliciousPub } = generateKeypair()
-		await seedServer("http://127.0.0.1:9999", maliciousPub)
+		const keys = generateKeypair()
+		await seedServer("http://127.0.0.1:9999", keys.signingPublicKey, keys.encryptionPublicKey)
 
-		// Build a valid signature using the fingerprint approach
-		const signaturePayload = JSON.stringify({
-			publicKeyFingerprint: fingerprintKey(maliciousPub),
+		const envelopePayload = JSON.stringify({
+			publicKeyFingerprint: fingerprintKey(keys.signingPublicKey),
+			encryptionPublicKeyFingerprint: fingerprintKey(keys.encryptionPublicKey),
 			url: "http://127.0.0.1:9999",
 		})
-		const signature = encryptPayload(signaturePayload, process.env.FEDERATION_PUBLIC_KEY!)
+		const envelope = encryptPayload(envelopePayload, getOwnEncryptionPublicKey())
 
 		const res = await request.post(`${BASE}/discover`, {
 			data: {
 				method: "DISCOVER",
-				publicKey: maliciousPub,
-				signature,
+				publicKey: keys.signingPublicKey,
+				encryptionPublicKey: keys.encryptionPublicKey,
+				envelope,
 			},
 		})
 
-		// Should be blocked rather than fetching the internal URL
 		expect(res.status()).toBe(400)
 		const body = await res.json()
 		expect(body.error).toMatch(/blocked/i)
@@ -149,7 +149,6 @@ test.describe("SSRF protection", () => {
 // ---------------------------------------------------------------------------
 test.describe("Blacklist enforcement (fixed)", () => {
 	async function blacklistServer(serverUrl: string, request: any) {
-		// Seed a challenge with 1 attempt left
 		await seedChallenge({
 			serverUrl,
 			attemptsLeft: 1,
@@ -160,8 +159,7 @@ test.describe("Blacklist enforcement (fixed)", () => {
 		await request.post(`${BASE}/discover/rotate/confirm`, {
 			data: {
 				serverUrl,
-				signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-				signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+				envelope: buildBadEnvelope(),
 			},
 		})
 
@@ -169,8 +167,7 @@ test.describe("Blacklist enforcement (fixed)", () => {
 		await request.post(`${BASE}/discover/rotate/confirm`, {
 			data: {
 				serverUrl,
-				signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-				signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+				envelope: buildBadEnvelope(),
 			},
 		})
 
@@ -179,14 +176,18 @@ test.describe("Blacklist enforcement (fixed)", () => {
 	}
 
 	test("blacklisted server is rejected by rotate/init", async ({ request }) => {
-		const { publicKey: oldPub } = generateKeypair()
+		const oldKeys = generateKeypair()
 		const serverUrl = "https://blacklisted-server.example"
-		await seedServer(serverUrl, oldPub)
+		await seedServer(serverUrl, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 		await blacklistServer(serverUrl, request as any)
 
-		const { publicKey: newPub } = generate4096Keypair()
+		const newKeys = generateKeypair()
 		const initRes = await request.post(`${BASE}/discover/rotate/init`, {
-			data: { url: serverUrl, newPublicKey: newPub },
+			data: {
+				url: serverUrl,
+				newSigningPublicKey: newKeys.signingPublicKey,
+				newEncryptionPublicKey: newKeys.encryptionPublicKey,
+			},
 		})
 		expect(initRes.status()).toBe(403)
 		const body = await initRes.json()
@@ -195,15 +196,14 @@ test.describe("Blacklist enforcement (fixed)", () => {
 
 	test("blacklisted server is rejected by rotate/confirm", async ({ request }) => {
 		const serverUrl = "https://blacklisted-confirm.example"
-		const { publicKey } = generateKeypair()
-		await seedServer(serverUrl, publicKey)
+		const keys = generateKeypair()
+		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 		await blacklistServer(serverUrl, request as any)
 
 		const confirmRes = await request.post(`${BASE}/discover/rotate/confirm`, {
 			data: {
 				serverUrl,
-				signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-				signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+				envelope: buildBadEnvelope(),
 			},
 		})
 		expect(confirmRes.status()).toBe(403)
@@ -218,8 +218,8 @@ test.describe("Blacklist enforcement (fixed)", () => {
 test.describe("Race condition fixed on rotate/confirm", () => {
 	test("concurrent requests are serialised by the row lock", async () => {
 		const serverUrl = "https://race-target.example"
-		const { publicKey } = generateKeypair()
-		await seedServer(serverUrl, publicKey)
+		const keys = generateKeypair()
+		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
 		await seedChallenge({
 			serverUrl,
@@ -229,8 +229,7 @@ test.describe("Race condition fixed on rotate/confirm", () => {
 
 		const payload = JSON.stringify({
 			serverUrl,
-			signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-			signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+			envelope: buildBadEnvelope(),
 		})
 
 		const fire = () =>
@@ -247,10 +246,6 @@ test.describe("Race condition fixed on rotate/confirm", () => {
 		const blacklisted = statuses.filter((s) => s === 403).length
 		const notFound = statuses.filter((s) => s === 404).length
 
-		// With the transaction lock, exactly 1 request should process the
-		// mismatch (400), then the next sees attemptsLeft=0 and blacklists (403),
-		// and the rest find no challenge (404) or hit the blacklist check.
-		// The key point: no more than 1 mismatch (400) should get through.
 		expect(mismatch).toBeLessThanOrEqual(1)
 		expect(mismatch + blacklisted + notFound).toBe(statuses.length)
 	})
@@ -262,59 +257,66 @@ test.describe("Race condition fixed on rotate/confirm", () => {
 test.describe("Challenge deduplication (fixed)", () => {
 	test("second init is rejected while a challenge is pending", async ({ request }) => {
 		const serverUrl = "https://dedup-target.example"
-		const { publicKey } = generateKeypair()
-		await seedServer(serverUrl, publicKey)
+		const keys = generateKeypair()
+		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
-		const { publicKey: newPub1 } = generate4096Keypair()
-		const { publicKey: newPub2 } = generate4096Keypair()
+		const newKeys1 = generateKeypair()
+		const newKeys2 = generateKeypair()
 
 		const res1 = await request.post(`${BASE}/discover/rotate/init`, {
-			data: { url: serverUrl, newPublicKey: newPub1 },
+			data: {
+				url: serverUrl,
+				newSigningPublicKey: newKeys1.signingPublicKey,
+				newEncryptionPublicKey: newKeys1.encryptionPublicKey,
+			},
 		})
 		expect(res1.status()).toBe(200)
 
-		// Second init while the first is still active → 409
 		const res2 = await request.post(`${BASE}/discover/rotate/init`, {
-			data: { url: serverUrl, newPublicKey: newPub2 },
+			data: {
+				url: serverUrl,
+				newSigningPublicKey: newKeys2.signingPublicKey,
+				newEncryptionPublicKey: newKeys2.encryptionPublicKey,
+			},
 		})
 		expect(res2.status()).toBe(409)
 		const body = await res2.json()
 		expect(body.error).toMatch(/already pending/i)
 
-		// Only one challenge exists
 		const challenges = await getChallengesByServerUrl(serverUrl)
 		expect(challenges.length).toBe(1)
 	})
 
 	test("init succeeds after the previous challenge expires", async ({ request }) => {
 		const serverUrl = "https://dedup-expire.example"
-		const { publicKey } = generateKeypair()
-		await seedServer(serverUrl, publicKey)
+		const keys = generateKeypair()
+		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
-		// Seed an already-expired challenge directly
 		await seedChallenge({
 			serverUrl,
 			expiresAt: new Date(Date.now() - 1000),
 		})
 
-		const { publicKey: newPub } = generate4096Keypair()
+		const newKeys = generateKeypair()
 		const res = await request.post(`${BASE}/discover/rotate/init`, {
-			data: { url: serverUrl, newPublicKey: newPub },
+			data: {
+				url: serverUrl,
+				newSigningPublicKey: newKeys.signingPublicKey,
+				newEncryptionPublicKey: newKeys.encryptionPublicKey,
+			},
 		})
 		expect(res.status()).toBe(200)
 
-		// Old challenge was replaced, only new one exists
 		const challenges = await getChallengesByServerUrl(serverUrl)
 		expect(challenges.length).toBe(1)
-		expect(challenges[0].newPublicKey).toBe(newPub)
+		expect(challenges[0].newSigningPublicKey).toBe(newKeys.signingPublicKey)
 	})
 
 	test("blacklisted server cannot reset attempts via new init", async ({ request }) => {
 		const serverUrl = "https://reset-blocked.example"
-		const { publicKey } = generateKeypair()
-		await seedServer(serverUrl, publicKey)
+		const keys = generateKeypair()
+		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
-		// Exhaust attempts → get blacklisted
 		await seedChallenge({
 			serverUrl,
 			attemptsLeft: 1,
@@ -323,102 +325,109 @@ test.describe("Challenge deduplication (fixed)", () => {
 		await request.post(`${BASE}/discover/rotate/confirm`, {
 			data: {
 				serverUrl,
-				signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-				signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+				envelope: buildBadEnvelope(),
 			},
 		})
 		await request.post(`${BASE}/discover/rotate/confirm`, {
 			data: {
 				serverUrl,
-				signedOldChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
-				signedNewChallenge: encryptPayload("wrong", process.env.FEDERATION_PUBLIC_KEY!),
+				envelope: buildBadEnvelope(),
 			},
 		})
 
 		const bl = await getBlacklistedServer(serverUrl)
 		expect(bl).toBeDefined()
 
-		// Try init → blocked by blacklist check
-		const { publicKey: freshPub } = generate4096Keypair()
+		const freshKeys = generateKeypair()
 		const initRes = await request.post(`${BASE}/discover/rotate/init`, {
-			data: { url: serverUrl, newPublicKey: freshPub },
+			data: {
+				url: serverUrl,
+				newSigningPublicKey: freshKeys.signingPublicKey,
+				newEncryptionPublicKey: freshKeys.encryptionPublicKey,
+			},
 		})
 		expect(initRes.status()).toBe(403)
 	})
 })
 
 // ---------------------------------------------------------------------------
-// 5. Signature validation — field values must match the request
+// 5. Envelope validation — field values must match the request
 // ---------------------------------------------------------------------------
-test.describe("Signature validation (fixed)", () => {
-	test("signature with mismatched publicKey fingerprint is rejected", async ({ request }) => {
-		const { publicKey: peerPub } = generateKeypair()
-		await seedServer("https://sig-test.example", peerPub)
+test.describe("Envelope validation (fixed)", () => {
+	test("envelope with mismatched publicKey fingerprint is rejected", async ({ request }) => {
+		const keys = generateKeypair()
+		await seedServer("https://sig-test.example", keys.signingPublicKey, keys.encryptionPublicKey)
 
-		// Encrypt a signature where the fingerprint doesn't match
-		const badSignature = encryptPayload(
-			JSON.stringify({ publicKeyFingerprint: "wrong-fingerprint", url: "https://sig-test.example" }),
-			process.env.FEDERATION_PUBLIC_KEY!,
+		const badEnvelope = encryptPayload(
+			JSON.stringify({
+				publicKeyFingerprint: "wrong-fingerprint",
+				encryptionPublicKeyFingerprint: fingerprintKey(keys.encryptionPublicKey),
+				url: "https://sig-test.example",
+			}),
+			getOwnEncryptionPublicKey(),
 		)
 
 		const res = await request.post(`${BASE}/discover`, {
 			data: {
 				method: "DISCOVER",
-				publicKey: peerPub,
-				signature: badSignature,
+				publicKey: keys.signingPublicKey,
+				encryptionPublicKey: keys.encryptionPublicKey,
+				envelope: badEnvelope,
 			},
 		})
 
 		expect(res.status()).toBe(400)
 	})
 
-	test("signature with placeholder values is rejected", async ({ request }) => {
-		const { publicKey: peerPub } = generateKeypair()
-		await seedServer("https://sig-test2.example", peerPub)
+	test("envelope with placeholder values is rejected", async ({ request }) => {
+		const keys = generateKeypair()
+		await seedServer("https://sig-test2.example", keys.signingPublicKey, keys.encryptionPublicKey)
 
-		// The old bypass: { publicKey: "x", url: "y" }, now invalid
-		const forgerySignature = encryptPayload(
+		const forgeryEnvelope = encryptPayload(
 			JSON.stringify({ publicKey: "x", url: "y" }),
-			process.env.FEDERATION_PUBLIC_KEY!,
+			getOwnEncryptionPublicKey(),
 		)
 
 		const res = await request.post(`${BASE}/discover`, {
 			data: {
 				method: "DISCOVER",
-				publicKey: peerPub,
-				signature: forgerySignature,
+				publicKey: keys.signingPublicKey,
+				encryptionPublicKey: keys.encryptionPublicKey,
+				envelope: forgeryEnvelope,
 			},
 		})
 
 		expect(res.status()).toBe(400)
 	})
 
-	test("signature with correct fingerprint passes validation", async ({ request }) => {
-		const { publicKey: peerPub } = generateKeypair()
-		const trap = createTrapServer(peerPub)
+	test("envelope with correct fingerprints passes validation", async ({ request }) => {
+		const keys = generateKeypair()
+		const trap = createTrapServer(keys.signingPublicKey, keys.encryptionPublicKey)
 		const port = await trap.start()
 		const peerUrl = `http://127.0.0.1:${port}`
 
 		try {
-			await seedServer(peerUrl, peerPub)
+			await seedServer(peerUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
-			const validSignature = encryptPayload(
+			const validEnvelope = encryptPayload(
 				JSON.stringify({
-					publicKeyFingerprint: fingerprintKey(peerPub),
+					publicKeyFingerprint: fingerprintKey(keys.signingPublicKey),
+					encryptionPublicKeyFingerprint: fingerprintKey(keys.encryptionPublicKey),
 					url: peerUrl,
 				}),
-				process.env.FEDERATION_PUBLIC_KEY!,
+				getOwnEncryptionPublicKey(),
 			)
 
 			const res = await request.post(`${BASE}/discover`, {
 				data: {
 					method: "DISCOVER",
-					publicKey: peerPub,
-					signature: validSignature,
+					publicKey: keys.signingPublicKey,
+					encryptionPublicKey: keys.encryptionPublicKey,
+					envelope: validEnvelope,
 				},
 			})
 
-			// The signature is valid, but the stored URL is internal → blocked by SSRF guard
+			// Envelope is valid, but the stored URL is internal → blocked by SSRF guard
 			expect(res.status()).toBe(400)
 			const body = await res.json()
 			expect(body.error).toMatch(/blocked/i)
@@ -433,10 +442,10 @@ test.describe("Signature validation (fixed)", () => {
 // ---------------------------------------------------------------------------
 test.describe("Information disclosure", () => {
 	test("GET /discover only returns url and isHealthy for peers", async ({ request }) => {
-		const { publicKey: peerPub1 } = generateKeypair()
-		const { publicKey: peerPub2 } = generateKeypair()
-		await seedServer("https://peer-one.example", peerPub1)
-		await seedServer("https://peer-two.example", peerPub2)
+		const keys1 = generateKeypair()
+		const keys2 = generateKeypair()
+		await seedServer("https://peer-one.example", keys1.signingPublicKey, keys1.encryptionPublicKey)
+		await seedServer("https://peer-two.example", keys2.signingPublicKey, keys2.encryptionPublicKey)
 
 		const res = await request.get(`${BASE}/discover`)
 		expect(res.status()).toBe(200)
@@ -448,12 +457,10 @@ test.describe("Information disclosure", () => {
 		for (const peer of body.peers) {
 			expect(peer.url).toBeDefined()
 			expect(peer.isHealthy).toBeDefined()
-			// Internal fields must NOT be exposed
 			expect(peer.id).toBeUndefined()
 			expect(peer.createdAt).toBeUndefined()
 			expect(peer.updatedAt).toBeUndefined()
 			expect(peer.lastSeen).toBeUndefined()
-			expect(peer.isHealthy).toBeUndefined()
 		}
 	})
 })

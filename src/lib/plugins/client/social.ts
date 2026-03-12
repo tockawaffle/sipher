@@ -98,7 +98,20 @@ export const sipherSocialClientPlugin = () => {
 						});
 					}
 
-					console.log("Resolved content:", resolvedContent);
+					const { data, error } = await $fetch<{
+						postId: string;
+					}>("/social/posts", {
+						method: "POST",
+						body: {
+							content: resolvedContent,
+						},
+					});
+
+					if (error || !data) {
+						throw new Error("Failed to create post");
+					}
+
+					return data.postId;
 				}
 			}
 		},

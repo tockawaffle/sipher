@@ -1,5 +1,5 @@
-import { pixelBasedPreset } from "@react-email/tailwind";
 import type { TailwindConfig } from "@react-email/tailwind";
+import { pixelBasedPreset } from "@react-email/tailwind";
 
 /**
  * React Email Tailwind config matching globals.css design tokens.

@@ -18,6 +18,12 @@ export const federation = () => {
 						unique: true,
 						index: true
 					},
+					encryptionPublicKey: {
+						type: "string",
+						required: true,
+						unique: true,
+						index: true
+					},
 					lastSeen: {
 						type: "date",
 						required: true,
@@ -42,18 +48,32 @@ export const federation = () => {
 			},
 			rotateChallengeTokens: {
 				fields: {
-					oldKeyToken: {
+					signingOldToken: {
 						type: "string",
 						required: true,
 						index: false
 					},
-					newKeyToken: {
+					signingNewToken: {
 						type: "string",
 						required: true,
-						unique: true,
-						index: true
+						index: false
 					},
-					newPublicKey: {
+					encryptionOldToken: {
+						type: "string",
+						required: true,
+						index: false
+					},
+					encryptionNewToken: {
+						type: "string",
+						required: true,
+						index: false
+					},
+					newSigningPublicKey: {
+						type: "string",
+						required: true,
+						index: false
+					},
+					newEncryptionPublicKey: {
 						type: "string",
 						required: true,
 						index: false

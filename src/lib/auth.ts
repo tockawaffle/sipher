@@ -12,9 +12,17 @@ import minioClient from "./plugins/server/storage/minio.client";
 const isTest = process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
 
-const federationKeysExist = process.env.FEDERATION_PUBLIC_KEY && process.env.FEDERATION_PRIVATE_KEY;
+const federationKeysExist =
+	process.env.FEDERATION_PUBLIC_KEY &&
+	process.env.FEDERATION_PRIVATE_KEY &&
+	process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY &&
+	process.env.FEDERATION_ENCRYPTION_PRIVATE_KEY;
 if (!federationKeysExist) {
-	throw new Error("FEDERATION_PUBLIC_KEY and FEDERATION_PRIVATE_KEY must be set, please run `bun run keygen` to generate them.");
+	throw new Error(
+		"All federation keys must be set (FEDERATION_PUBLIC_KEY, FEDERATION_PRIVATE_KEY, " +
+		"FEDERATION_ENCRYPTION_PUBLIC_KEY, FEDERATION_ENCRYPTION_PRIVATE_KEY). " +
+		"Run `bun run keygen` to generate them.",
+	);
 }
 
 const bAuth = betterAuth({

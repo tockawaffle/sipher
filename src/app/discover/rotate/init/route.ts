@@ -1,42 +1,47 @@
 import db from "@/lib/db";
-import { rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
+import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
 import { encryptPayload } from "@/lib/federation/keytools";
 import createDebug from "debug";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
-import forge from "node-forge";
 import { z } from "zod";
 
 const debug = createDebug("app:discover:rotate:init");
 
-const publicKeySchema = z.string().refine((key) => {
+const ED25519_PUBLIC_KEY_BYTES = 32;
+const X25519_PUBLIC_KEY_BYTES = 32;
+
+function isValidBase64Key(key: string, expectedBytes: number): boolean {
 	try {
-		const pub = forge.pki.publicKeyFromPem(key);
-		return pub.n.bitLength() >= 4096;
+		const decoded = Buffer.from(key, "base64");
+		return decoded.length === expectedBytes;
 	} catch {
 		return false;
 	}
-}, { message: "Invalid public key" });
+}
 
 const schema = z.object({
 	url: z.url(),
-	newPublicKey: publicKeySchema,
+	newSigningPublicKey: z.string().refine(
+		(key) => isValidBase64Key(key, ED25519_PUBLIC_KEY_BYTES),
+		{ message: "Invalid Ed25519 signing public key" },
+	),
+	newEncryptionPublicKey: z.string().refine(
+		(key) => isValidBase64Key(key, X25519_PUBLIC_KEY_BYTES),
+		{ message: "Invalid X25519 encryption public key" },
+	),
 });
 
 /**
  * Initializes a key rotation challenge for a server.
  *
- * This route is used to initiate the key rotation process. It will issue two independent challenges:
- * - oldKeyChallenge: a random token encrypted with the server's current public key.
- * - newKeyChallenge: a random token encrypted with the server's new public key.
+ * Issues 4 independent challenges:
+ * - signingOldChallenge: plaintext nonce (SB signs with old Ed25519 key)
+ * - signingNewChallenge: plaintext nonce (SB signs with new Ed25519 key)
+ * - encryptionOldChallenge: nonce encrypted with SB's current X25519 key (SB decrypts)
+ * - encryptionNewChallenge: nonce encrypted with SB's new X25519 key (SB decrypts)
  *
- * The challenges are stored in the database and will expire in 5 minutes.
- *
- * The challenges are returned to the client and must be decrypted using the respective private keys.
- *
- * The client must then send the challenges to the server's /discover/rotate/confirm route to confirm the key rotation.
- * 
- * The server will not send his current public key to the client, the client must fetch it from the server's /discover route as a part of the challenge validation.
+ * Challenges expire in 5 minutes. SB confirms via /discover/rotate/confirm.
  */
 export async function POST(request: NextRequest) {
 	const body = await request.json();
@@ -48,6 +53,13 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({ error: validated.error.message }, { status: 400 });
 	}
 
+	const [blacklisted] = await db.select().from(blacklistedServers)
+		.where(eq(blacklistedServers.serverUrl, validated.data.url.toString()));
+	if (blacklisted) {
+		debug("POST /discover/rotate/init – server %s is blacklisted", validated.data.url);
+		return NextResponse.json({ error: "Your server has been blacklisted." }, { status: 403 });
+	}
+
 	debug("POST /discover/rotate/init – looking up server %s", validated.data.url);
 	const server = await db.select().from(serverRegistry).where(eq(serverRegistry.url, validated.data.url.toString()));
 	if (server.length === 0) {
@@ -55,13 +67,14 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({ error: "Server not found, please register your server first." }, { status: 404 });
 	}
 
-	if (server[0].publicKey === validated.data.newPublicKey) {
-		debug("POST /discover/rotate/init – new key is identical to current key, rejecting");
-		return NextResponse.json({ error: "Your server is already registered with this public key." }, { status: 400 });
+	if (
+		server[0].publicKey === validated.data.newSigningPublicKey &&
+		server[0].encryptionPublicKey === validated.data.newEncryptionPublicKey
+	) {
+		debug("POST /discover/rotate/init – keys are identical to current keys, rejecting");
+		return NextResponse.json({ error: "Your server is already registered with these keys." }, { status: 400 });
 	}
 
-	// Check for existing pending challenges, only one active challenge per server is allowed.
-	// This got removed by accident on a previous commit.
 	const [existing] = await db.select().from(rotateChallengeTokens)
 		.where(eq(rotateChallengeTokens.serverUrl, validated.data.url.toString()));
 
@@ -77,37 +90,39 @@ export async function POST(request: NextRequest) {
 		await db.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, existing.id));
 	}
 
-	// Issue two independent challenges:
-	//
-	// oldKeyChallenge — encrypted with the SA's CURRENT registered public key.
-	// Only the holder of the current private key can decrypt this.
-	// This is the identity proof: it shows the requester really is the
-	// registered server and not someone who merely knows its URL.
-	//
-	// newKeyChallenge — encrypted with the submitted new public key.
-	// Only the holder of the new private key can decrypt this.
-	// This proves the SA actually owns the key they want to rotate to.
-	//
-	// Both plaintexts are stored. On confirm the SA must re-encrypt both
-	// with OUR public key so we can decrypt and compare — proving they
-	// fetched our identity as well.
-	const oldKeyPlaintext = crypto.randomUUID();
-	const newKeyPlaintext = crypto.randomUUID();
+	const signingOldPlaintext = crypto.randomUUID();
+	const signingNewPlaintext = crypto.randomUUID();
+	const encryptionOldPlaintext = crypto.randomUUID();
+	const encryptionNewPlaintext = crypto.randomUUID();
 
-	debug("POST /discover/rotate/init – issuing challenges for server %s", validated.data.url);
-	const oldKeyChallenge = encryptPayload(oldKeyPlaintext, server[0].publicKey);
-	const newKeyChallenge = encryptPayload(newKeyPlaintext, validated.data.newPublicKey);
+	debug("POST /discover/rotate/init – issuing 4 challenges for server %s", validated.data.url);
+
+	const currentEncPubKey = new Uint8Array(Buffer.from(server[0].encryptionPublicKey, "base64"));
+	const newEncPubKey = new Uint8Array(Buffer.from(validated.data.newEncryptionPublicKey, "base64"));
+
+	const encryptionOldChallenge = encryptPayload(encryptionOldPlaintext, currentEncPubKey);
+	const encryptionNewChallenge = encryptPayload(encryptionNewPlaintext, newEncPubKey);
 
 	await db.insert(rotateChallengeTokens).values({
 		id: crypto.randomUUID(),
-		oldKeyToken: oldKeyPlaintext,
-		newKeyToken: newKeyPlaintext,
-		newPublicKey: validated.data.newPublicKey,
+		signingOldToken: signingOldPlaintext,
+		signingNewToken: signingNewPlaintext,
+		encryptionOldToken: encryptionOldPlaintext,
+		encryptionNewToken: encryptionNewPlaintext,
+		newSigningPublicKey: validated.data.newSigningPublicKey,
+		newEncryptionPublicKey: validated.data.newEncryptionPublicKey,
 		serverUrl: validated.data.url.toString(),
 		createdAt: new Date(),
 		expiresAt: new Date(Date.now() + 1000 * 60 * 5),
 	});
 
 	debug("POST /discover/rotate/init – challenges issued, expires in 5 minutes");
-	return NextResponse.json({ oldKeyChallenge, newKeyChallenge });
+	const response = {
+		signingOldChallenge: signingOldPlaintext,
+		signingNewChallenge: signingNewPlaintext,
+		encryptionOldChallenge,
+		encryptionNewChallenge,
+	}
+	debug("POST /discover/rotate/init – response: %o", response);
+	return NextResponse.json(response);
 }

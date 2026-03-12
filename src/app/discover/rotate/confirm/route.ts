@@ -1,6 +1,6 @@
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
-import { decryptPayload } from "@/lib/federation/keytools";
+import { decryptPayload, verifySignature } from "@/lib/federation/keytools";
 import createDebug from "debug";
 import { eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
@@ -14,29 +14,27 @@ const debug = createDebug("app:discover:rotate:confirm");
  * Terminology: SA = this server (Server A), SB = the server rotating its keys (Server B).
  *
  * Full rotation flow:
- * 1. SB generates a new keypair. It keeps the old private key accessible until rotation is complete.
- * 2. SB sends { url, newPublicKey } to SA's /discover/rotate/init.
- * 3. SA issues two independent challenges and returns them to SB:
- *    - oldKeyChallenge: a random token encrypted with SB's CURRENT (old) public key.
- *    - newKeyChallenge: a random token encrypted with SB's NEW public key.
- * 4. SB decrypts both challenges using the respective private keys:
- *    - oldKeyChallenge → decrypted with old private key → oldPlaintext
- *    - newKeyChallenge → decrypted with new private key → newPlaintext
- * 5. SB fetches SA's public key from /discover, then re-encrypts both plaintexts with it:
- *    - signedOldChallenge = encrypt(oldPlaintext, SA.publicKey)
- *    - signedNewChallenge = encrypt(newPlaintext, SA.publicKey)
- * 6. SB sends { serverUrl, signedOldChallenge, signedNewChallenge } to this route.
- * 7. SA decrypts both with its own private key and compares to the stored tokens.
- *    - If either mismatches: decrement attemptsLeft; blacklist server at 0 attempts.
- *    - If both match: update serverRegistry with newPublicKey and delete the challenge.
+ * 1. SB generates new Ed25519 + X25519 keypairs.
+ * 2. SB sends { url, newSigningPublicKey, newEncryptionPublicKey } to SA's /discover/rotate/init.
+ * 3. SA issues 4 challenges:
+ *    - signingOldChallenge: plaintext nonce (SB signs with old Ed25519 key)
+ *    - signingNewChallenge: plaintext nonce (SB signs with new Ed25519 key)
+ *    - encryptionOldChallenge: nonce encrypted with SB's current X25519 key
+ *    - encryptionNewChallenge: nonce encrypted with SB's new X25519 key
+ * 4. SB solves all 4 challenges:
+ *    - Signs the signing challenges with respective Ed25519 keys
+ *    - Decrypts the encryption challenges with respective X25519 keys
+ * 5. SB fetches SA's /discover to get SA's X25519 public key, then encrypts
+ *    all 4 proof values into a single EncryptedEnvelope using SA's X25519 key.
+ * 6. SA decrypts the envelope and verifies all 4 proofs.
  *
  * What each check proves:
- * - signedOldChallenge match → SB holds the old private key (identity proof: "they are who they say they are")
- * - signedNewChallenge match → SB holds the new private key (ownership proof: "they own the key they want to rotate to")
- * - re-encryption with SA's public key → SB fetched SA's identity from /discover
- *
- * TODO: on success, announce the completed rotation to other known federation peers
- * so they can treat SA as a trusted proxy for confirming SB's new key. (Other federation servers could ignore this information and force the challenge to be completed for themselves.)
+ * - signingOldSignature: SB holds the old Ed25519 private key (identity proof)
+ * - signingNewSignature: SB holds the new Ed25519 private key (ownership proof)
+ * - encryptionOldPlaintext: SB holds the old X25519 private key (encryption identity proof)
+ * - encryptionNewPlaintext: SB holds the new X25519 private key (encryption ownership proof)
+ * - Envelope encrypted with SA's X25519 key: SB fetched SA's /discover (identity binding)
+ * - Discover being fetched: SB fetched SA's /discover endpoint (liveliness proof) <- Not accounted for but it is a proof that the other federation is alive and responsive.
  */
 export async function POST(request: NextRequest) {
 	const body = await request.json();
@@ -44,12 +42,12 @@ export async function POST(request: NextRequest) {
 
 	const validated = z.object({
 		serverUrl: z.url(),
-		// SA decrypted oldKeyChallenge with their OLD private key,
-		// then re-encrypted the plaintext with OUR public key.
-		signedOldChallenge: z.string(),
-		// SA decrypted newKeyChallenge with their NEW private key,
-		// then re-encrypted the plaintext with OUR public key.
-		signedNewChallenge: z.string(),
+		envelope: z.object({
+			ephemeralPublicKey: z.string(),
+			iv: z.string(),
+			ciphertext: z.string(),
+			authTag: z.string(),
+		}),
 	}).safeParse(body);
 
 	if (!validated.success) {
@@ -57,9 +55,15 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({ error: validated.error.message }, { status: 400 });
 	}
 
+	const [blacklisted] = await db.select().from(blacklistedServers)
+		.where(eq(blacklistedServers.serverUrl, validated.data.serverUrl));
+	if (blacklisted) {
+		debug("POST /discover/rotate/confirm – server %s is blacklisted", validated.data.serverUrl);
+		return NextResponse.json({ error: "Your server has been blacklisted. Please contact support to unblacklist your server." }, { status: 403 });
+	}
+
 	debug("POST /discover/rotate/confirm – fetching pending challenge for %s", validated.data.serverUrl);
 
-	// transaction to ensure that the challenge is deleted and the server registry is updated atomically and that there's no race condition.
 	return await db.transaction(async (tx) => {
 		const [challenge] = await tx.select().from(rotateChallengeTokens)
 			.where(eq(rotateChallengeTokens.serverUrl, validated.data.serverUrl))
@@ -88,38 +92,75 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ error: "Your server has been blacklisted. Please contact support to unblacklist your server." }, { status: 403 });
 		}
 
-		debug("POST /discover/rotate/confirm – %d attempt(s) left, decrypting challenges", challenge.attemptsLeft);
-		let decryptedOld: string;
-		let decryptedNew: string;
+		debug("POST /discover/rotate/confirm – %d attempt(s) left, decrypting envelope", challenge.attemptsLeft);
+
+		const ownEncryptionSecretKey = new Uint8Array(
+			Buffer.from(process.env.FEDERATION_ENCRYPTION_PRIVATE_KEY!, "base64"),
+		);
+
+		let proofs: {
+			signingOldSignature: string;
+			signingNewSignature: string;
+			encryptionOldPlaintext: string;
+			encryptionNewPlaintext: string;
+		};
 		try {
-			decryptedOld = decryptPayload(validated.data.signedOldChallenge, process.env.FEDERATION_PRIVATE_KEY!);
-			decryptedNew = decryptPayload(validated.data.signedNewChallenge, process.env.FEDERATION_PRIVATE_KEY!);
+			const decrypted = decryptPayload(validated.data.envelope, ownEncryptionSecretKey);
+			proofs = JSON.parse(decrypted);
 		} catch {
-			debug("POST /discover/rotate/confirm – decryption failed, decrementing attempts");
+			debug("POST /discover/rotate/confirm – envelope decryption failed, decrementing attempts");
 			await tx.update(rotateChallengeTokens).set({
 				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
-			}).where(eq(rotateChallengeTokens.id, challenge.id))
+			}).where(eq(rotateChallengeTokens.id, challenge.id));
 			return NextResponse.json({
-				error: `Failed to decrypt one or both challenges. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+				error: `Failed to decrypt envelope. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
 			}, { status: 400 });
 		}
 
-		if (decryptedOld !== challenge.oldKeyToken || decryptedNew !== challenge.newKeyToken) {
-			debug("POST /discover/rotate/confirm – token mismatch (old=%s, new=%s), decrementing attempts",
-				decryptedOld === challenge.oldKeyToken ? "ok" : "MISMATCH",
-				decryptedNew === challenge.newKeyToken ? "ok" : "MISMATCH",
+		const [server] = await tx.select().from(serverRegistry)
+			.where(eq(serverRegistry.url, challenge.serverUrl));
+
+		if (!server) {
+			debug("POST /discover/rotate/confirm – server not found in registry");
+			return NextResponse.json({ error: "Server not found in registry." }, { status: 404 });
+		}
+
+		const currentSigningPub = new Uint8Array(Buffer.from(server.publicKey, "base64"));
+		const newSigningPub = new Uint8Array(Buffer.from(challenge.newSigningPublicKey, "base64"));
+
+		const signingOldValid = verifySignature(
+			challenge.signingOldToken,
+			proofs.signingOldSignature,
+			currentSigningPub,
+		);
+		const signingNewValid = verifySignature(
+			challenge.signingNewToken,
+			proofs.signingNewSignature,
+			newSigningPub,
+		);
+		const encOldValid = proofs.encryptionOldPlaintext === challenge.encryptionOldToken;
+		const encNewValid = proofs.encryptionNewPlaintext === challenge.encryptionNewToken;
+
+		if (!signingOldValid || !signingNewValid || !encOldValid || !encNewValid) {
+			debug(
+				"POST /discover/rotate/confirm – proof mismatch (sigOld=%s, sigNew=%s, encOld=%s, encNew=%s), decrementing",
+				signingOldValid ? "ok" : "FAIL",
+				signingNewValid ? "ok" : "FAIL",
+				encOldValid ? "ok" : "FAIL",
+				encNewValid ? "ok" : "FAIL",
 			);
 			await tx.update(rotateChallengeTokens).set({
 				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
 			}).where(eq(rotateChallengeTokens.id, challenge.id));
 			return NextResponse.json({
-				error: `Challenge mismatch. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+				error: `Challenge verification failed. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
 			}, { status: 400 });
 		}
 
-		debug("POST /discover/rotate/confirm – both challenges passed, rotating key for %s", challenge.serverUrl);
+		debug("POST /discover/rotate/confirm – all 4 proofs passed, rotating keys for %s", challenge.serverUrl);
 		await tx.update(serverRegistry).set({
-			publicKey: challenge.newPublicKey,
+			publicKey: challenge.newSigningPublicKey,
+			encryptionPublicKey: challenge.newEncryptionPublicKey,
 			updatedAt: new Date(),
 		}).where(eq(serverRegistry.url, challenge.serverUrl));
 

@@ -1,14 +1,74 @@
 import db from "@/lib/db";
 import { serverRegistry } from "@/lib/db/schema";
-import { decryptPayload } from "@/lib/federation/keytools";
+import { decryptPayload, fingerprintKey } from "@/lib/federation/keytools";
 import { assertSafeUrl, UrlGuardError } from "@/lib/federation/url-guard";
 import createDebug from "debug";
 import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
-import forge from "node-forge";
 import { z } from "zod";
 
 const debug = createDebug("app:discover");
+
+const ED25519_PUBLIC_KEY_BYTES = 32;
+const X25519_PUBLIC_KEY_BYTES = 32;
+
+function isValidBase64Key(key: string, expectedBytes: number): boolean {
+	try {
+		const decoded = Buffer.from(key, "base64");
+		return decoded.length === expectedBytes;
+	} catch {
+		return false;
+	}
+}
+
+const signingKeySchema = z.string().refine(
+	(key) => isValidBase64Key(key, ED25519_PUBLIC_KEY_BYTES),
+	{ message: `Signing public key must be a base64-encoded Ed25519 key (${ED25519_PUBLIC_KEY_BYTES} bytes)` },
+);
+
+const encryptionKeySchema = z.string().refine(
+	(key) => isValidBase64Key(key, X25519_PUBLIC_KEY_BYTES),
+	{ message: `Encryption public key must be a base64-encoded X25519 key (${X25519_PUBLIC_KEY_BYTES} bytes)` },
+);
+
+function getOwnEncryptionSecretKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_ENCRYPTION_PRIVATE_KEY!, "base64"));
+}
+
+const discoverSchema = z.object({
+	method: z.literal("DISCOVER"),
+	publicKey: signingKeySchema,
+	encryptionPublicKey: encryptionKeySchema,
+	envelope: z.object({
+		ephemeralPublicKey: z.string(),
+		iv: z.string(),
+		ciphertext: z.string(),
+		authTag: z.string(),
+	}),
+}).superRefine((data, ctx) => {
+	try {
+		const decrypted = decryptPayload(data.envelope, getOwnEncryptionSecretKey());
+		const parsed = JSON.parse(decrypted);
+		if (parsed.publicKeyFingerprint !== fingerprintKey(data.publicKey)) {
+			ctx.addIssue({ code: "custom", message: "Envelope does not match the provided signing public key" });
+		}
+		if (parsed.encryptionPublicKeyFingerprint !== fingerprintKey(data.encryptionPublicKey)) {
+			ctx.addIssue({ code: "custom", message: "Envelope does not match the provided encryption public key" });
+		}
+		if (!parsed.url) {
+			ctx.addIssue({ code: "custom", message: "Envelope is missing the url field" });
+		}
+	} catch {
+		ctx.addIssue({ code: "custom", message: "Invalid envelope" });
+	}
+});
+
+const registerSchema = z.object({
+	method: z.literal("REGISTER"),
+	url: z.url(),
+	publicKey: signingKeySchema,
+	encryptionPublicKey: encryptionKeySchema,
+});
 
 export async function GET() {
 	debug("GET /discover – fetching healthy peers");
@@ -19,73 +79,25 @@ export async function GET() {
 	debug("GET /discover – found %d peer(s)", peers.length);
 
 	return NextResponse.json({
-		url: process.env.BETTER_AUTH_URL,
+		url: process.env.BETTER_AUTH_URL!,
 		publicKey: process.env.FEDERATION_PUBLIC_KEY,
-		peers
+		encryptionPublicKey: process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY,
+		peers,
 	});
 }
 
-async function upsertServer(url: string, publicKey: string) {
+async function upsertServer(url: string, publicKey: string, encryptionPublicKey: string) {
 	return await db.insert(serverRegistry).values({
 		id: crypto.randomUUID(),
-		url: url,
-		publicKey: publicKey,
+		url,
+		publicKey,
+		encryptionPublicKey,
 		lastSeen: new Date(),
 		createdAt: new Date(),
 		updatedAt: new Date(),
 		isHealthy: true,
 	}).onConflictDoNothing();
 }
-
-const publicKeySchema = z.string().superRefine((key, ctx) => {
-	let pub: forge.pki.rsa.PublicKey;
-	try {
-		pub = forge.pki.publicKeyFromPem(key) as forge.pki.rsa.PublicKey;
-	} catch {
-		ctx.addIssue({ code: "custom", message: "Public key is not a valid PEM-encoded RSA key", input: key });
-		return;
-	}
-	if (!pub.n) {
-		ctx.addIssue({ code: "custom", message: "Public key is not an RSA key", input: key });
-		return;
-	}
-	if (pub.n.bitLength() < 2048) {
-		ctx.addIssue({ code: "custom", message: `RSA key must be at least 2048 bits (got ${pub.n.bitLength()})`, input: key });
-	}
-});
-
-function fingerprintKey(pem: string): string {
-	const md = forge.md.sha256.create();
-	md.update(pem, "utf8");
-	return md.digest().toHex();
-}
-
-const discoverSchema = z.object({
-	method: z.literal("DISCOVER"),
-	publicKey: publicKeySchema,
-	signature: z.string(),
-}).superRefine((data, ctx) => {
-	try {
-		const decrypted = decryptPayload(data.signature, process.env.FEDERATION_PRIVATE_KEY!);
-		const parsed = JSON.parse(decrypted);
-		// The signature contains a SHA-256 fingerprint of the public key
-		// (since the full PEM exceeds RSA-OAEP's size limit) plus a url.
-		if (parsed.publicKeyFingerprint !== fingerprintKey(data.publicKey)) {
-			ctx.addIssue({ code: "custom", message: "Signature does not match the provided public key" });
-		}
-		if (!parsed.url) {
-			ctx.addIssue({ code: "custom", message: "Signature is missing the url field" });
-		}
-	} catch {
-		ctx.addIssue({ code: "custom", message: "Invalid signature" });
-	}
-});
-
-const registerSchema = z.object({
-	method: z.literal("REGISTER"),
-	url: z.url(),
-	publicKey: publicKeySchema,
-});
 
 async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	debug("DISCOVER – looking up server by public key");
@@ -96,7 +108,9 @@ async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	}
 
 	try {
-		assertSafeUrl(server[0].url);
+		if (process.env.NODE_ENV !== "development") {
+			assertSafeUrl(server[0].url);
+		}
 	} catch (err) {
 		debug("DISCOVER – stored URL failed SSRF check: %s", server[0].url);
 		if (err instanceof UrlGuardError) {
@@ -126,7 +140,9 @@ async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 
 async function registerServer(validated: z.infer<typeof registerSchema>) {
 	try {
-		assertSafeUrl(validated.url);
+		if (process.env.NODE_ENV !== "development") {
+			assertSafeUrl(validated.url);
+		}
 	} catch (err) {
 		debug("REGISTER – URL failed SSRF check: %s", validated.url);
 		if (err instanceof UrlGuardError) {
@@ -136,7 +152,7 @@ async function registerServer(validated: z.infer<typeof registerSchema>) {
 	}
 
 	debug("REGISTER – fetching /discover from %s to validate server", validated.url);
-	let response: { publicKey?: string };
+	let response: { publicKey?: string; encryptionPublicKey?: string };
 	try {
 		response = await (await fetch(validated.url + "/discover")).json();
 	} catch (err) {
@@ -144,31 +160,30 @@ async function registerServer(validated: z.infer<typeof registerSchema>) {
 		return NextResponse.json({ error: "Failed to reach the server" }, { status: 502 });
 	}
 
-	if (!response.publicKey) {
-		debug("REGISTER – remote server returned no public key");
+	if (!response.publicKey || !response.encryptionPublicKey) {
+		debug("REGISTER – remote server returned incomplete keys");
 		return NextResponse.json({ error: "Invalid server" }, { status: 400 });
-	} else if (response.publicKey !== validated.publicKey) {
-		debug("REGISTER – public key mismatch: provided vs fetched");
-		debug("REGISTER – provided public key: %s", validated.publicKey);
-		debug("REGISTER – fetched public key: %s", response.publicKey);
-		return NextResponse.json({ error: "Invalid public key" }, { status: 400 });
+	} else if (response.publicKey !== validated.publicKey || response.encryptionPublicKey !== validated.encryptionPublicKey) {
+		debug("REGISTER – key mismatch: provided vs fetched");
+		return NextResponse.json({ error: "Public keys do not match the ones reported by the server" }, { status: 400 });
 	}
 
 	debug("REGISTER – checking for existing registration at %s", validated.url);
 	const server = await db.select().from(serverRegistry).where(eq(serverRegistry.url, validated.url.toString()));
 	if (server.length > 0 && server[0].publicKey !== validated.publicKey) {
 		debug("REGISTER – key mismatch against existing registration");
-		return NextResponse.json({ error: "Your public key does not match the one registered on the server, to update your public key, please send a PATCH request instead." }, { status: 400 });
+		return NextResponse.json({ error: "Your public key does not match the one registered on the server, to update your public key, please use the key rotation flow instead." }, { status: 400 });
 	}
 
 	debug("REGISTER – upserting server %s", validated.url);
-	await upsertServer(validated.url.toString(), validated.publicKey);
+	await upsertServer(validated.url.toString(), validated.publicKey, validated.encryptionPublicKey);
 
 	debug("REGISTER – server registered successfully");
 	return NextResponse.json({
 		message: "Server registered successfully", echo: {
-			url: process.env.NEXT_PUBLIC_APP_URL,
+			url: process.env.BETTER_AUTH_URL!,
 			publicKey: process.env.FEDERATION_PUBLIC_KEY,
+			encryptionPublicKey: process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY,
 		}
 	});
 }

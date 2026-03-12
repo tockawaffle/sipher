@@ -2,21 +2,25 @@
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import forge from "node-forge";
+import nacl from "tweetnacl";
 
 export function generateKeypair() {
-	const keypair = forge.pki.rsa.generateKeyPair(2048);
+	const signing = nacl.sign.keyPair();
+	const encryption = nacl.box.keyPair();
 	return {
-		publicKey: forge.pki.publicKeyToPem(keypair.publicKey),
-		privateKey: forge.pki.privateKeyToPem(keypair.privateKey),
+		signingPublicKey: Buffer.from(signing.publicKey).toString("base64"),
+		signingSecretKey: Buffer.from(signing.secretKey).toString("base64"),
+		encryptionPublicKey: Buffer.from(encryption.publicKey).toString("base64"),
+		encryptionSecretKey: Buffer.from(encryption.secretKey).toString("base64"),
 	}
 }
 
-export async function seedServer(url: string, publicKey: string) {
+export async function seedServer(url: string, publicKey: string, encryptionPublicKey: string) {
 	await db.insert(serverRegistry).values({
 		id: crypto.randomUUID(),
 		url,
 		publicKey,
+		encryptionPublicKey,
 		lastSeen: new Date(),
 		createdAt: new Date(),
 		updatedAt: new Date(),
@@ -25,13 +29,16 @@ export async function seedServer(url: string, publicKey: string) {
 }
 
 export async function seedChallenge(overrides?: Partial<typeof rotateChallengeTokens.$inferInsert>) {
-	const { publicKey: defaultNewPublicKey } = generateKeypair()
+	const keys = generateKeypair()
 	const defaults = {
 		id: crypto.randomUUID(),
 		serverUrl: "https://test-server.com",
-		oldKeyToken: crypto.randomUUID(),
-		newKeyToken: crypto.randomUUID(),
-		newPublicKey: defaultNewPublicKey,
+		signingOldToken: crypto.randomUUID(),
+		signingNewToken: crypto.randomUUID(),
+		encryptionOldToken: crypto.randomUUID(),
+		encryptionNewToken: crypto.randomUUID(),
+		newSigningPublicKey: keys.signingPublicKey,
+		newEncryptionPublicKey: keys.encryptionPublicKey,
 		attemptsLeft: 3,
 		createdAt: new Date(),
 		expiresAt: new Date(Date.now() + 1000 * 60 * 5),
@@ -53,11 +60,12 @@ export async function clearRotateChallengeTokens() {
 	return await db.delete(rotateChallengeTokens)
 }
 
-export async function insertServerEcho(url: string, publicKey: string) {
+export async function insertServerEcho(url: string, publicKey: string, encryptionPublicKey: string) {
 	await db.insert(serverRegistry).values({
 		id: crypto.randomUUID(),
 		url,
 		publicKey,
+		encryptionPublicKey,
 		lastSeen: new Date(),
 		createdAt: new Date(),
 		updatedAt: new Date(),
