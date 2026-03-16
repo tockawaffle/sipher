@@ -1,6 +1,7 @@
 import db from "@/lib/db";
 import { serverRegistry } from "@/lib/db/schema";
 import { decryptPayload, fingerprintKey } from "@/lib/federation/keytools";
+import { upsertServer } from "@/lib/federation/registry";
 import { assertSafeUrl, UrlGuardError } from "@/lib/federation/url-guard";
 import createDebug from "debug";
 import { desc, eq } from "drizzle-orm";
@@ -86,19 +87,6 @@ export async function GET() {
 	});
 }
 
-async function upsertServer(url: string, publicKey: string, encryptionPublicKey: string) {
-	return await db.insert(serverRegistry).values({
-		id: crypto.randomUUID(),
-		url,
-		publicKey,
-		encryptionPublicKey,
-		lastSeen: new Date(),
-		createdAt: new Date(),
-		updatedAt: new Date(),
-		isHealthy: true,
-	}).onConflictDoNothing();
-}
-
 async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	debug("DISCOVER – looking up server by public key");
 	const server = await db.select().from(serverRegistry).where(eq(serverRegistry.publicKey, validated.publicKey));
@@ -108,9 +96,7 @@ async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	}
 
 	try {
-		if (process.env.NODE_ENV !== "development") {
-			assertSafeUrl(server[0].url);
-		}
+		assertSafeUrl(server[0].url);
 	} catch (err) {
 		debug("DISCOVER – stored URL failed SSRF check: %s", server[0].url);
 		if (err instanceof UrlGuardError) {
@@ -140,9 +126,7 @@ async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 
 async function registerServer(validated: z.infer<typeof registerSchema>) {
 	try {
-		if (process.env.NODE_ENV !== "development") {
-			assertSafeUrl(validated.url);
-		}
+		await assertSafeUrl(validated.url);
 	} catch (err) {
 		debug("REGISTER – URL failed SSRF check: %s", validated.url);
 		if (err instanceof UrlGuardError) {

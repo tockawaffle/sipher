@@ -84,3 +84,19 @@ export function fingerprintKey(keyBase64: string): string {
 	const hash = createHash("sha256").update(fromBase64(keyBase64)).digest("hex");
 	return hash;
 }
+
+export function getOwnEncryptionPublicKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!, "base64"))
+}
+
+export function getOwnSigningPublicKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_PUBLIC_KEY!, "base64"))
+}
+
+export function getOwnSigningSecretKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_PRIVATE_KEY!, "base64"))
+}
+
+export function getOwnEncryptionSecretKey(): Uint8Array {
+	return new Uint8Array(Buffer.from(process.env.FEDERATION_ENCRYPTION_PRIVATE_KEY!, "base64"))
+}

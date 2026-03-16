@@ -1,7 +1,9 @@
 import db from "@/lib/db";
-import { posts } from "@/lib/db/schema";
+import { deliveryJobs, follows, posts } from "@/lib/db/schema";
+import { getFederationQueue, type FederationDeliveryJob } from "@/lib/bull";
 import minioClient from "@/plugins/server/storage/minio.client";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { postContentSchema } from "../social";
 
@@ -16,8 +18,6 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		return context.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-
-
 	// Create post
 	const post = await db.insert(posts).values({
 		id: crypto.randomUUID(),
@@ -27,6 +27,36 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		isLocal: true,
 		createdAt: new Date(),
 	}).returning({ id: posts.id });
+
+	// Enqueue federation delivery jobs for each follower's server
+	const followers = await db.select().from(follows).where(and(eq(follows.followingId, user.user.id), eq(follows.accepted, true)));
+	const uniqueUrls = [...new Set(followers.map(f => f.followerServerUrl).filter(Boolean))] as string[];
+	const payload = JSON.stringify({ content });
+
+	const jobRows = uniqueUrls.map(url => ({
+		id: crypto.randomUUID(),
+		targetUrl: url + "/social/posts",
+		serverUrl: url,
+		payload,
+		attempts: 0,
+		createdAt: new Date(),
+	}));
+
+	if (jobRows.length > 0) {
+		await db.insert(deliveryJobs).values(jobRows);
+
+		await getFederationQueue().addBulk(
+			jobRows.map(row => ({
+				name: 'deliver-post' as const,
+				data: {
+					deliveryJobId: row.id,
+					targetUrl: row.targetUrl,
+					serverUrl: row.serverUrl,
+					payload: row.payload,
+				} satisfies FederationDeliveryJob,
+			})),
+		);
+	}
 
 	return context.json({ id: post[0].id }, { status: 200 });
 

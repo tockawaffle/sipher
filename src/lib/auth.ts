@@ -8,6 +8,7 @@ import db from "./db";
 import * as schema from "./db/schema";
 import EmailService from "./mail";
 import minioClient from "./plugins/server/storage/minio.client";
+import getRedisClient from "./redis";
 
 const isTest = process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
@@ -52,6 +53,18 @@ const bAuth = betterAuth({
 		provider: "pg",
 		schema
 	}),
+	secondaryStorage: {
+		get: async (key) => {
+			const value = await getRedisClient().get(key);
+			return value ? JSON.parse(value) : null;
+		},
+		set: async (key, value, ttl) => {
+			await getRedisClient().setex(key, ttl ?? 3600 * 24 * 7, JSON.stringify(value));
+		},
+		delete: async (key) => {
+			await getRedisClient().del(key);
+		}
+	},
 	hooks: {
 		after: createAuthMiddleware(async (context) => {
 			if (!context.path) return;
@@ -74,7 +87,8 @@ const bAuth = betterAuth({
 		sipherSocial(),
 		federation(),
 		openAPI(),
-		testUtils() // TODO: Add a conditional plugin for test utils in development
+		testUtils(), // TODO: Add a conditional plugin for test utils in development
+		bearer()
 	],
 	// This is disabled by default, but I'll keep this here for ease of mind.
 	// You never know when companies will change their minds and decide to start tracking you.

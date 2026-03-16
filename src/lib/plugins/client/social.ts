@@ -112,7 +112,33 @@ export const sipherSocialClientPlugin = () => {
 					}
 
 					return data.postId;
+				},
+			followUser: async (userId: string, federationUrl?: string) => {
+				const body: Record<string, string> = {
+					method: "INSERT",
+					userId,
+				};
+				if (federationUrl) {
+					body.federationUrl = federationUrl;
 				}
+
+				const { data, error } = await $fetch<{
+					following: {
+						id: string;
+						createdAt: Date;
+						followerId: string;
+						followingId: string;
+						accepted: boolean;
+					};
+				}>("/social/follows", {
+					method: "POST",
+					body,
+				});
+				if (error || !data) {
+					throw new Error("Failed to follow user");
+				}
+				return data.following;
+			}
 			}
 		},
 	} satisfies BetterAuthClientPlugin;

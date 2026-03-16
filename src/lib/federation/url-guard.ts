@@ -7,8 +7,13 @@ const BLOCKED_HOSTNAMES = new Set([
 	"0.0.0.0",
 	"[::1]",
 	"[::0]",
+	"metadata.google.internal",
+	"metadata.goog",
+	"169.254.169.254",
 ]);
 
+const DEV_ALLOWED_HOSTNAMES = new Set(["localhost", "127.0.0.1", process.env.DEV_ALLOWED_HOSTNAMES!]);
+debug("DEV_ALLOWED_HOSTNAMES: %o", DEV_ALLOWED_HOSTNAMES);
 function isPrivateIPv4(hostname: string): boolean {
 	const parts = hostname.split(".").map(Number);
 	if (parts.length !== 4 || parts.some((p) => isNaN(p))) return false;
@@ -34,7 +39,9 @@ function isPrivateIPv6(hostname: string): boolean {
 
 /**
  * Throws if the URL points to a private/internal address or uses a
- * non-HTTP(S) protocol. Call before any server-side fetch to prevent SSRF.
+ * non-HTTP(S) protocol. In development, localhost/127.0.0.1 are explicitly
+ * allowed for local federation testing while all other safety checks
+ * remain enforced.
  */
 export function assertSafeUrl(url: string): void {
 	let parsed: URL;
@@ -49,6 +56,10 @@ export function assertSafeUrl(url: string): void {
 	}
 
 	const hostname = parsed.hostname;
+
+	if (process.env.NODE_ENV === "development" && DEV_ALLOWED_HOSTNAMES.has(hostname)) {
+		return;
+	}
 
 	if (BLOCKED_HOSTNAMES.has(hostname)) {
 		debug("blocked hostname: %s", hostname);

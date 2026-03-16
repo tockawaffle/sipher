@@ -94,6 +94,11 @@ export default {
 				type: "date",
 				required: true,
 				index: false
+			},
+			federationUrl: {
+				type: "string",
+				required: false,
+				index: true,
 			}
 		}
 	},
@@ -103,19 +108,11 @@ export default {
 				type: "string",
 				required: true,
 				index: false,
-				references: {
-					model: "user",
-					field: "id"
-				}
 			},
 			followingId: {
 				type: "string",
 				required: true,
 				index: false,
-				references: {
-					model: "user",
-					field: "id"
-				}
 			},
 			accepted: {
 				type: "boolean",
@@ -127,7 +124,25 @@ export default {
 				type: "date",
 				required: true,
 				index: false
-			}
+			},
+			followerServerUrl: {
+				type: "string",
+				required: false,
+				index: true,
+				references: {
+					model: "serverRegistry",
+					field: "url"
+				}
+			},
+			followingServerUrl: {
+				type: "string",
+				required: false,
+				index: true,
+				references: {
+					model: "serverRegistry",
+					field: "url"
+				}
+			},
 		}
 	},
 	deliveryJobs: {
