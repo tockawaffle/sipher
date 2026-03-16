@@ -76,6 +76,11 @@ bun run rotateKeys.ts --resume '<keys-json>'
 
 **Marcello Brito** (Tocka) — [tockanest.com](https://tockanest.com)
 
+## Mirrors
+
+[Gitea](https://git.tockanest.com/Cete/sipher)
+[GitHub](https://github.com/tockawaffle/sipher)
+
 ## Security
 
 SiPher implements custom federation and cryptographic protocols. I am not a professional cryptographer or security researcher — this system has not been audited and almost certainly contains multiple vulnerabilities I am not aware of.
