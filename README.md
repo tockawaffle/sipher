@@ -79,7 +79,21 @@ bun run rotateKeys.ts --resume '<keys-json>'
 ## Mirrors
 
 [Gitea](https://git.tockanest.com/Cete/sipher)
+
 [GitHub](https://github.com/tockawaffle/sipher)
+
+## What is public/private?
+
+### Public
+
+There are things that won't be e2ee because there's simply no reason for that to be done, this is a small list of the current (not finished) public data that other federations or even users might fetch and get all of the data:
+
+- Posts: 
+- - The whole post object is public, that includes:
+- - - The content, including images, videos or audios if any
+- - - Who posted it
+- - - The federation that has that data
+
 
 ## Security
 

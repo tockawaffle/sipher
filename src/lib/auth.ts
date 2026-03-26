@@ -102,6 +102,13 @@ const bAuth = betterAuth({
 				defaultValue: false,
 				required: false,
 				index: false,
+			},
+			postPropagationPolicy: {
+				type: "string",
+				defaultValue: "all",
+				required: false,
+				index: false,
+				enum: ["all", "followers", "none"] as const,
 			}
 		}
 	}

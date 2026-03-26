@@ -1,5 +1,6 @@
 import db from "@/lib/db";
 import { serverRegistry } from "@/lib/db/schema";
+import { FederationError, federationFetch } from "@/lib/federation/fetch";
 import { decryptPayload, fingerprintKey } from "@/lib/federation/keytools";
 import { upsertServer } from "@/lib/federation/registry";
 import { assertSafeUrl, UrlGuardError } from "@/lib/federation/url-guard";
@@ -113,10 +114,16 @@ async function discoverServer(validated: z.infer<typeof discoverSchema>) {
 	if (server[0].publicKey === validated.publicKey) confirmations.sameKeyOnServer = true;
 	debug("DISCOVER – fetching public key from federation server %s", server[0].url);
 	try {
-		const federationResponse = await (await fetch(server[0].url + "/discover")).json();
+		const { response } = await federationFetch(server[0].url + "/discover", {
+			serverUrl: server[0].url,
+		});
+		const federationResponse = await response.json();
 		if (federationResponse.publicKey === validated.publicKey) confirmations.sameKeyOnFetch = true;
 	} catch (err) {
 		debug("DISCOVER – fetch to %s failed: %o", server[0].url, err);
+		if (err instanceof FederationError) {
+			return NextResponse.json({ error: "Failed to reach the federation server", code: err.code }, { status: 502 });
+		}
 		return NextResponse.json({ error: "Failed to reach the federation server" }, { status: 502 });
 	}
 
@@ -136,18 +143,24 @@ async function registerServer(validated: z.infer<typeof registerSchema>) {
 	}
 
 	debug("REGISTER – fetching /discover from %s to validate server", validated.url);
-	let response: { publicKey?: string; encryptionPublicKey?: string };
+	let remoteKeys: { publicKey?: string; encryptionPublicKey?: string };
 	try {
-		response = await (await fetch(validated.url + "/discover")).json();
+		const { response } = await federationFetch(validated.url + "/discover", {
+			serverUrl: validated.url,
+		});
+		remoteKeys = await response.json();
 	} catch (err) {
 		debug("REGISTER – fetch to %s failed: %o", validated.url, err);
+		if (err instanceof FederationError) {
+			return NextResponse.json({ error: "Failed to reach the server", code: err.code }, { status: 502 });
+		}
 		return NextResponse.json({ error: "Failed to reach the server" }, { status: 502 });
 	}
 
-	if (!response.publicKey || !response.encryptionPublicKey) {
+	if (!remoteKeys.publicKey || !remoteKeys.encryptionPublicKey) {
 		debug("REGISTER – remote server returned incomplete keys");
 		return NextResponse.json({ error: "Invalid server" }, { status: 400 });
-	} else if (response.publicKey !== validated.publicKey || response.encryptionPublicKey !== validated.encryptionPublicKey) {
+	} else if (remoteKeys.publicKey !== validated.publicKey || remoteKeys.encryptionPublicKey !== validated.encryptionPublicKey) {
 		debug("REGISTER – key mismatch: provided vs fetched");
 		return NextResponse.json({ error: "Public keys do not match the ones reported by the server" }, { status: 400 });
 	}

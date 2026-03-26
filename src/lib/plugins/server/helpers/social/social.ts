@@ -63,12 +63,17 @@ export default {
 			},
 			authorId: {
 				type: "string",
-				required: true,
+				required: false,
 				index: false,
 				references: {
 					model: "user",
 					field: "id"
 				}
+			},
+			federatedAuthorId: {
+				type: "string",
+				required: false,
+				index: false,
 			},
 			published: {
 				type: "date",
@@ -84,6 +89,7 @@ export default {
 				defaultValue: false,
 			},
 			// "isPrivate" will be used to determine if the post should be visible only for the user's followers
+			// If "isLocal" is set to true and this to false, only users on the same server will be able to see the psot
 			isPrivate: {
 				type: "boolean",
 				required: false,
@@ -96,6 +102,12 @@ export default {
 				index: false
 			},
 			federationUrl: {
+				type: "string",
+				required: false,
+				index: true,
+			},
+			// This serves as a reference to the post on the original server this post came from
+			federationPostId: {
 				type: "string",
 				required: false,
 				index: true,

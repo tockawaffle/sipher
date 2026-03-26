@@ -25,6 +25,7 @@ export const user = pgTable("user", {
   displayUsername: text("display_username"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   isPrivate: boolean("is_private").default(false),
+  postPropagationPolicy: text("post_propagation_policy").default("all"),
 });
 
 export const account = pgTable(
@@ -72,16 +73,21 @@ export const posts = pgTable(
   {
     id: text("id").primaryKey(),
     content: jsonb("content").notNull(),
-    authorId: text("author_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    authorId: text("author_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    federatedAuthorId: text("federated_author_id"),
     published: timestamp("published").notNull(),
     isLocal: boolean("is_local").default(false).notNull(),
     isPrivate: boolean("is_private").default(false),
     createdAt: timestamp("created_at").notNull(),
     federationUrl: text("federation_url"),
+    federationPostId: text("federation_post_id"),
   },
-  (table) => [index("posts_federationUrl_idx").on(table.federationUrl)],
+  (table) => [
+    index("posts_federationUrl_idx").on(table.federationUrl),
+    index("posts_federationPostId_idx").on(table.federationPostId),
+  ],
 );
 
 export const follows = pgTable(
@@ -150,6 +156,8 @@ export const serverRegistry = pgTable(
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
     isHealthy: boolean("is_healthy").notNull(),
+    healthCheckAttempts: integer("health_check_attempts").default(0).notNull(),
+    unhealthyReason: text("unhealthy_reason"),
   },
   (table) => [
     uniqueIndex("serverRegistry_publicKey_uidx").on(table.publicKey),

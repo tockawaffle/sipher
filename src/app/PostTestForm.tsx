@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
 
@@ -32,6 +33,25 @@ export function PostTestForm() {
 			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	};
+
+	const body = JSON.stringify({
+		method: "REGISTER",
+		url: process.env.BETTER_AUTH_URL!,
+		publicKey: process.env.FEDERATION_PUBLIC_KEY!,
+		encryptionPublicKey: process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!,
+	});
+
+	async function forceDiscover(url: string) {
+		console.log("body", body);
+		const response = await fetch(`${url}/discover`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: body,
+		});
+		return response.json();
+	}
 
 	return (
 		<div style={{ padding: 32, maxWidth: 480, margin: "0 auto", fontFamily: "sans-serif" }}>
@@ -85,6 +105,9 @@ export function PostTestForm() {
 					{status}
 				</pre>
 			)}
+			<Button onClick={() => forceDiscover("http://172.21.157.201:3000")}>Force Discover</Button>
+			<Button onClick={() => forceDiscover("http://172.21.157.201:3001")}>Force Discover</Button>
 		</div>
+
 	);
 }

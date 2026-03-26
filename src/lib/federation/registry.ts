@@ -1,5 +1,6 @@
 import db from '@/lib/db';
 import { serverRegistry } from '@/lib/db/schema';
+import { federationFetch, FederationError, type FederationErrorCode } from '@/lib/federation/fetch';
 import { assertSafeUrl } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
 import { eq } from 'drizzle-orm';
@@ -16,7 +17,43 @@ export async function upsertServer(url: string, publicKey: string, encryptionPub
 		createdAt: new Date(),
 		updatedAt: new Date(),
 		isHealthy: true,
-	}).onConflictDoNothing();
+		healthCheckAttempts: 0,
+		unhealthyReason: null,
+	}).onConflictDoUpdate({
+		target: serverRegistry.url,
+		set: {
+			lastSeen: new Date(),
+			updatedAt: new Date(),
+		},
+	});
+}
+
+export async function markServerUnhealthy(serverUrl: string, reason: FederationErrorCode): Promise<void> {
+	debug('marking server %s as unhealthy (reason: %s)', serverUrl, reason);
+	await db.update(serverRegistry).set({
+		isHealthy: false,
+		unhealthyReason: reason,
+		healthCheckAttempts: 0,
+		updatedAt: new Date(),
+	}).where(eq(serverRegistry.url, serverUrl));
+
+	try {
+		const { scheduleHealthCheck } = await import('@/lib/bull');
+		await scheduleHealthCheck(serverUrl, 0);
+	} catch (err) {
+		debug('failed to schedule health check for %s: %O', serverUrl, err);
+	}
+}
+
+export async function markServerHealthy(serverUrl: string): Promise<void> {
+	debug('marking server %s as healthy', serverUrl);
+	await db.update(serverRegistry).set({
+		isHealthy: true,
+		unhealthyReason: null,
+		healthCheckAttempts: 0,
+		lastSeen: new Date(),
+		updatedAt: new Date(),
+	}).where(eq(serverRegistry.url, serverUrl));
 }
 
 export class DiscoveryError extends Error {
@@ -38,15 +75,18 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 
 	let remote: { url?: string; publicKey?: string; encryptionPublicKey?: string };
 	try {
-		const res = await fetch(serverUrl + '/discover', {
-			signal: AbortSignal.timeout(10_000),
+		const { response } = await federationFetch(serverUrl + '/discover', {
+			serverUrl,
 		});
-		if (!res.ok) {
-			throw new DiscoveryError(`GET /discover returned ${res.status}`);
+		if (!response.ok) {
+			throw new DiscoveryError(`GET /discover returned ${response.status}`);
 		}
-		remote = await res.json();
+		remote = await response.json();
 	} catch (err) {
 		if (err instanceof DiscoveryError) throw err;
+		if (err instanceof FederationError) {
+			throw new DiscoveryError(`Failed to reach ${serverUrl}/discover: ${err.code}`);
+		}
 		throw new DiscoveryError(`Failed to reach ${serverUrl}/discover: ${err instanceof Error ? err.message : err}`);
 	}
 
@@ -72,7 +112,7 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 
 	debug('sending mutual REGISTER to %s', serverUrl);
 	try {
-		await fetch(serverUrl + '/discover', {
+		await federationFetch(serverUrl + '/discover', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
@@ -81,7 +121,7 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 				publicKey: process.env.FEDERATION_PUBLIC_KEY!,
 				encryptionPublicKey: process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!,
 			}),
-			signal: AbortSignal.timeout(10_000),
+			serverUrl,
 		});
 	} catch (err) {
 		debug('mutual REGISTER to %s failed (non-fatal): %s', serverUrl, err instanceof Error ? err.message : err);

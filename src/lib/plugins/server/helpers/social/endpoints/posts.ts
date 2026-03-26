@@ -1,65 +1,182 @@
-import db from "@/lib/db";
-import { deliveryJobs, follows, posts } from "@/lib/db/schema";
 import { getFederationQueue, type FederationDeliveryJob } from "@/lib/bull";
+import db from "@/lib/db";
+import { deliveryJobs, follows, posts, serverRegistry } from "@/lib/db/schema";
+import { encryptPayload } from "@/lib/federation/keytools";
+import { applyFederatedPostInTransaction } from "@/lib/federation/proxy-helpers/federated-post";
+import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
+import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
 import minioClient from "@/plugins/server/storage/minio.client";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
+import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { postContentSchema } from "../social";
 
+const debug = createDebug("app:plugins:server:helpers:social:posts");
+
+const federatedPostRequestSchema = z.object({
+	method: z.literal("FEDERATE_POST"),
+	payload: EncryptedEnvelopeBaseSchema,
+	signature: z.string(),
+});
+
+const createPostBodySchema = z.union([federatedPostRequestSchema, postContentSchema]);
+
 export const createPost = createAuthEndpoint("/social/posts", {
 	method: "POST",
-	body: postContentSchema,
+	body: createPostBodySchema,
 }, async (context) => {
-	const content = context.body;
-	const user = await getSessionFromCtx(context)
+	const body = context.body;
+
+	if (typeof body === "object" && body !== null && "method" in body && body.method === "FEDERATE_POST") {
+		const { payload: encryptedPayload, signature } = body;
+
+		const parsedEnvelope = PostEnvelopeSchema.safeParse(encryptedPayload);
+		if (!parsedEnvelope.success) {
+			return context.json(
+				{ error: "Invalid federated post payload", code: "INVALID_FEDERATED_POST_PAYLOAD" },
+				{ status: 400 },
+			);
+		}
+
+		const envelope = parsedEnvelope.data;
+		const [server] = await db
+			.select({
+				url: serverRegistry.url,
+				publicKey: serverRegistry.publicKey,
+				encryptionPublicKey: serverRegistry.encryptionPublicKey,
+			})
+			.from(serverRegistry)
+			.where(eq(serverRegistry.url, envelope.federationUrl))
+			.limit(1);
+
+		if (!server) {
+			return context.json(
+				{
+					error: "Unknown federation server. Please redo the discovery process and try again.",
+					code: "UNKNOWN_FEDERATION_SERVER_INTERACTION",
+				},
+				{ status: 403 },
+			);
+		}
+
+		const result = await db.transaction(async (tx) =>
+			applyFederatedPostInTransaction(tx, envelope, signature, server),
+		);
+
+		if (!result.ok) {
+			return context.json({ error: result.error, code: result.code }, { status: result.status });
+		}
+
+		const recipientKey = new Uint8Array(Buffer.from(result.senderEncryptionPublicKeyB64, "base64"));
+		return context.json(
+			{
+				method: "PROXY_RESPONSE" as const,
+				status: "acknowledged",
+				data: encryptPayload(result.innerPayload, recipientKey),
+				signature: result.signature,
+			},
+			{ status: 200 },
+		);
+	}
+
+	const content = body;
+	const user = await getSessionFromCtx(context);
 
 	if (!user) {
 		return context.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	// Create post
-	const post = await db.insert(posts).values({
-		id: crypto.randomUUID(),
-		content: content,
-		authorId: user.user.id,
-		published: new Date(),
-		isLocal: true,
-		createdAt: new Date(),
-	}).returning({ id: posts.id });
+	const isPrivate = user.user.isPrivate;
+	const shouldPropagate = {
+		all: true,
+		followers: isPrivate,
+		none: false,
+	}[user.user.postPropagationPolicy as "all" | "followers" | "none"] ?? true;
 
-	// Enqueue federation delivery jobs for each follower's server
-	const followers = await db.select().from(follows).where(and(eq(follows.followingId, user.user.id), eq(follows.accepted, true)));
-	const uniqueUrls = [...new Set(followers.map(f => f.followerServerUrl).filter(Boolean))] as string[];
-	const payload = JSON.stringify({ content });
+	const postId = crypto.randomUUID();
+	const published = new Date();
+	const inserted = await db
+		.insert(posts)
+		.values({
+			id: postId,
+			content,
+			authorId: user.user.id,
+			published,
+			isLocal: shouldPropagate,
+			isPrivate,
+			federationUrl: process.env.BETTER_AUTH_URL!,
+			federationPostId: postId,
+			createdAt: new Date(),
+		})
+		.returning({ id: posts.id });
 
-	const jobRows = uniqueUrls.map(url => ({
-		id: crypto.randomUUID(),
-		targetUrl: url + "/social/posts",
-		serverUrl: url,
-		payload,
-		attempts: 0,
-		createdAt: new Date(),
-	}));
+	let federationDeliveriesQueued = 0;
 
-	if (jobRows.length > 0) {
-		await db.insert(deliveryJobs).values(jobRows);
+	if (shouldPropagate) {
+		const followers = await db
+			.select()
+			.from(follows)
+			.where(and(eq(follows.followingId, user.user.id), eq(follows.accepted, true)));
+		const following = await db
+			.select()
+			.from(follows)
+			.where(and(eq(follows.followerId, user.user.id), eq(follows.accepted, true)));
 
-		await getFederationQueue().addBulk(
-			jobRows.map(row => ({
-				name: 'deliver-post' as const,
-				data: {
-					deliveryJobId: row.id,
-					targetUrl: row.targetUrl,
-					serverUrl: row.serverUrl,
-					payload: row.payload,
-				} satisfies FederationDeliveryJob,
-			})),
-		);
+		debug("followers: %o", followers);
+		debug("following: %o", following);
+
+		const uniqueUrls = [
+			...new Set([
+				...followers.map((f) => f.followingServerUrl).filter(Boolean),
+				...following.map((f) => f.followerServerUrl).filter(Boolean),
+			]),
+		] as string[];
+
+		federationDeliveriesQueued = uniqueUrls.length;
+
+		if (uniqueUrls.length > 0) {
+			const jobPayload = JSON.stringify({
+				method: "FEDERATE_POST" as const,
+				federationUrl: process.env.BETTER_AUTH_URL!,
+				post: {
+					id: postId,
+					content,
+					authorId: user.user.id,
+					published: published.toISOString(),
+					isPrivate,
+				},
+			});
+
+			const jobRows = uniqueUrls.map((url) => ({
+				id: crypto.randomUUID(),
+				targetUrl: url + "/api/auth/social/posts",
+				serverUrl: url,
+				payload: jobPayload,
+				attempts: 0,
+				createdAt: new Date(),
+			}));
+
+			await db.insert(deliveryJobs).values(jobRows);
+
+			await getFederationQueue().addBulk(
+				jobRows.map((row) => ({
+					name: "deliver-post" as const,
+					data: {
+						deliveryJobId: row.id,
+						targetUrl: row.targetUrl,
+						serverUrl: row.serverUrl,
+						payload: row.payload,
+					} satisfies FederationDeliveryJob,
+				})),
+			);
+		}
 	}
 
-	return context.json({ id: post[0].id }, { status: 200 });
-
+	return context.json(
+		{ id: inserted[0].id, federationDeliveriesQueued },
+		{ status: 200 },
+	);
 });
 
 export const getPost = createAuthEndpoint("/social/posts/:id", {
@@ -107,4 +224,4 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 	const objectUrl = `${protocol}://${process.env.MINIO_ENDPOINT}:${process.env.MINIO_PORT}/${process.env.MINIO_BUCKET}/${objectKey}`;
 
 	return context.json({ presignedUrl, objectUrl, objectKey }, { status: 200 });
-})
+});

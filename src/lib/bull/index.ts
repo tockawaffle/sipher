@@ -1,13 +1,29 @@
 import db from '@/lib/db';
 import { blacklistedServers, deliveryJobs, follows, serverRegistry } from '@/lib/db/schema';
-import { encryptPayload, getOwnSigningSecretKey, signMessage } from '@/lib/federation/keytools';
-import { discoverAndRegister, DiscoveryError } from '@/lib/federation/registry';
+import { FederationError, federationFetch, type FederationErrorCode } from '@/lib/federation/fetch';
+import { encryptPayload, getOwnSigningSecretKey, signMessage, verifySignature } from '@/lib/federation/keytools';
+import { discoverAndRegister, DiscoveryError, markServerHealthy } from '@/lib/federation/registry';
+import { getThreatPolicy } from '@/lib/federation/threat-model';
 import { Queue, UnrecoverableError, Worker, type Job } from 'bullmq';
 import createDebug from 'debug';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import Redis from 'ioredis';
+import z from 'zod';
+import { FollowEnvelopeSchema } from '../zod/methods/FollowSchema';
 
 const debug = createDebug('app:federation:worker');
+
+// ---------------------------------------------------------------------------
+// Shared Redis
+// ---------------------------------------------------------------------------
+
+function createRedisConnection() {
+	return new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
+}
+
+// ---------------------------------------------------------------------------
+// Federation delivery queue (existing)
+// ---------------------------------------------------------------------------
 
 export interface FederationDeliveryJob {
 	deliveryJobId: string;
@@ -16,17 +32,13 @@ export interface FederationDeliveryJob {
 	payload: string;
 }
 
-const QUEUE_NAME = 'federation-delivery';
+const DELIVERY_QUEUE_NAME = 'federation-delivery';
 
-function createRedisConnection() {
-	return new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
-}
-
-let _queue: Queue<FederationDeliveryJob> | null = null;
+let _deliveryQueue: Queue<FederationDeliveryJob> | null = null;
 
 export function getFederationQueue(): Queue<FederationDeliveryJob> {
-	if (!_queue) {
-		_queue = new Queue<FederationDeliveryJob>(QUEUE_NAME, {
+	if (!_deliveryQueue) {
+		_deliveryQueue = new Queue<FederationDeliveryJob>(DELIVERY_QUEUE_NAME, {
 			connection: createRedisConnection() as never,
 			defaultJobOptions: {
 				attempts: 5,
@@ -39,8 +51,47 @@ export function getFederationQueue(): Queue<FederationDeliveryJob> {
 			},
 		});
 	}
-	return _queue;
+	return _deliveryQueue;
 }
+
+// ---------------------------------------------------------------------------
+// Health-check queue
+// ---------------------------------------------------------------------------
+
+export interface HealthCheckJob {
+	serverUrl: string;
+}
+
+const HEALTH_CHECK_QUEUE_NAME = 'federation-health-check';
+
+let _healthCheckQueue: Queue<HealthCheckJob> | null = null;
+
+export function getHealthCheckQueue(): Queue<HealthCheckJob> {
+	if (!_healthCheckQueue) {
+		_healthCheckQueue = new Queue<HealthCheckJob>(HEALTH_CHECK_QUEUE_NAME, {
+			connection: createRedisConnection() as never,
+		});
+	}
+	return _healthCheckQueue;
+}
+
+export async function scheduleHealthCheck(serverUrl: string, attempt: number): Promise<void> {
+	const delayMinutes = 5 + (attempt * 10);
+	const delayMs = delayMinutes * 60 * 1000;
+	debug('scheduling health check for %s in %d minutes (attempt %d)', serverUrl, delayMinutes, attempt);
+
+	const safeId = serverUrl.replace(/[^a-zA-Z0-9._-]/g, '_');
+	await getHealthCheckQueue().add('health-check', { serverUrl }, {
+		delay: delayMs,
+		jobId: `health-check_${safeId}_${attempt}`,
+		removeOnComplete: true,
+		removeOnFail: true,
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Delivery worker processor
+// ---------------------------------------------------------------------------
 
 async function processFederationDelivery(job: Job<FederationDeliveryJob>) {
 	const { deliveryJobId, targetUrl, serverUrl, payload } = job.data;
@@ -61,7 +112,7 @@ async function processFederationDelivery(job: Job<FederationDeliveryJob>) {
 	let encryptionPublicKey: string;
 
 	const [server] = await db
-		.select({ encryptionPublicKey: serverRegistry.encryptionPublicKey })
+		.select({ encryptionPublicKey: serverRegistry.encryptionPublicKey, publicKey: serverRegistry.publicKey })
 		.from(serverRegistry)
 		.where(eq(serverRegistry.url, serverUrl))
 		.limit(1);
@@ -93,7 +144,7 @@ async function processFederationDelivery(job: Job<FederationDeliveryJob>) {
 	debug('sending encrypted payload to %s', targetUrl);
 
 	const method = JSON.parse(payload).method;
-	if (!method || !["FEDERATE", "INSERT", "UNFOLLOW"].includes(method)) {
+	if (!method || !["FEDERATE", "FEDERATE_POST", "INSERT", "UNFOLLOW"].includes(method)) {
 		debug('invalid method: %s, dropping job %s', method, job.id);
 		await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
 		debug('job %s dropped because of invalid method', job.id);
@@ -102,11 +153,18 @@ async function processFederationDelivery(job: Job<FederationDeliveryJob>) {
 
 	const signature = signMessage(payload, getOwnSigningSecretKey());
 
-	const response = await fetch(targetUrl, {
+	const { response } = await federationFetch(targetUrl, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json', 'Origin': process.env.BETTER_AUTH_URL! },
+		headers: {
+			'Content-Type': 'application/json',
+			'Origin': process.env.BETTER_AUTH_URL!,
+			'X-Federation-Origin': process.env.BETTER_AUTH_URL!,
+			'X-Federation-Target': targetUrl,
+		},
 		body: JSON.stringify({ method, payload: encrypted, signature }),
-		signal: AbortSignal.timeout(15_000),
+		timeout: 15_000,
+		proxyFallback: true,
+		serverUrl,
 	});
 
 	if (!response.ok) {
@@ -115,30 +173,150 @@ async function processFederationDelivery(job: Job<FederationDeliveryJob>) {
 	}
 
 	const responseBody = await response.json();
+	debug('delivery to %s response body: %o', targetUrl, responseBody);
+	debug('responseBody.payload: %s', responseBody.payload);
 
-	if (responseBody.status !== "acknowledged") {
+	const ackPayload =
+		responseBody.payload?.method === "PROXY_RESPONSE"
+			? responseBody.payload
+			: responseBody.method === "PROXY_RESPONSE"
+				? responseBody
+				: null;
+
+	if (!ackPayload || ackPayload.method !== "PROXY_RESPONSE") {
 		debug('delivery to %s not acknowledged', targetUrl);
 		throw new UnrecoverableError(`Federation delivery to ${targetUrl} failed: ${response.status} - ${JSON.stringify(responseBody)}`);
 	}
 
 	if (job.name === 'deliver-follow') {
-		const followId = JSON.parse(payload).following?.id;
-		if (followId && typeof responseBody.accepted === "boolean") {
-			await db.update(follows).set({ accepted: responseBody.accepted })
-				.where(eq(follows.id, followId));
-			debug('updated follow %s accepted=%s', followId, responseBody.accepted);
+		let followPayload: z.infer<typeof FollowEnvelopeSchema>;
+		debug('delivery to %s is a follow, updating follow', targetUrl);
+		debug('ackPayload: %o', ackPayload);
+
+		if (ackPayload.method === "PROXY_RESPONSE") {
+			// Decrypt the payload
+			const decrypted = FollowEnvelopeSchema.safeParse(ackPayload.data)
+			if (!decrypted.success) {
+				debug('failed to parse follow payload: %s', ackPayload.data);
+				await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
+				throw new UnrecoverableError(`Failed to parse follow payload, dropping job ${job.id}`);
+			}
+
+			debug("payload data: %o", decrypted.data);
+			// Decrypt the signature
+			const signature = verifySignature(decrypted.data._raw, ackPayload.signature, new Uint8Array(Buffer.from(server.publicKey!, 'base64')));
+
+			if (!signature) {
+				debug('signature verification failed, dropping job %s', job.id);
+				await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
+				throw new UnrecoverableError(`Signature verification failed, dropping job ${job.id}`);
+			}
+
+			followPayload = decrypted.data as z.infer<typeof FollowEnvelopeSchema>;
+		} else {
+			const validated = FollowEnvelopeSchema.safeParse(ackPayload);
+			if (!validated.success) {
+				debug('failed to parse follow payload: %s', ackPayload);
+				await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
+				throw new UnrecoverableError(`Failed to parse follow payload, dropping job ${job.id}`);
+			}
+
+			followPayload = validated.data as z.infer<typeof FollowEnvelopeSchema>;
+		}
+
+		const followData = followPayload.following;
+		if (followData && followData.accepted) {
+			await db.update(follows).set({ accepted: followData.accepted })
+				.where(
+					and(
+						eq(follows.followerId, followData.followerId),
+						eq(follows.followingId, followData.followingId),
+						eq(follows.followerServerUrl, serverUrl),
+					)
+				);
+			debug('updated follow %s accepted=%s', followData.id, followData.accepted);
 		}
 	}
 
 	debug('job %s delivered successfully to %s', job.id, targetUrl);
 }
 
+// ---------------------------------------------------------------------------
+// Health-check worker processor
+// ---------------------------------------------------------------------------
+
+const MAX_HEALTH_CHECK_ATTEMPTS = 5;
+
+async function processHealthCheck(job: Job<HealthCheckJob>) {
+	const { serverUrl } = job.data;
+
+	const [server] = await db.select()
+		.from(serverRegistry)
+		.where(eq(serverRegistry.url, serverUrl))
+		.limit(1);
+
+	if (!server) {
+		debug('health-check: server %s not found in registry, skipping', serverUrl);
+		return;
+	}
+
+	if (server.isHealthy) {
+		debug('health-check: server %s is already healthy, skipping', serverUrl);
+		return;
+	}
+
+	if (server.unhealthyReason) {
+		const policy = getThreatPolicy(server.unhealthyReason as FederationErrorCode);
+		if (!policy.directHealthCheckable) {
+			debug('health-check: server %s has reason %s (not direct-checkable), skipping', serverUrl, server.unhealthyReason);
+			return;
+		}
+	}
+
+	debug('health-check: pinging %s (attempt %d/%d)', serverUrl, server.healthCheckAttempts + 1, MAX_HEALTH_CHECK_ATTEMPTS);
+
+	try {
+		const { response } = await federationFetch(serverUrl + '/discover', {
+			serverUrl,
+			timeout: 8_000,
+			skipHealthUpdate: true,
+		});
+
+		if (response.ok) {
+			debug('health-check: %s is reachable, marking healthy', serverUrl);
+			await markServerHealthy(serverUrl);
+			return;
+		}
+
+		debug('health-check: %s returned HTTP %d', serverUrl, response.status);
+	} catch (err) {
+		debug('health-check: %s failed: %s', serverUrl, err instanceof FederationError ? err.code : err);
+	}
+
+	const nextAttempt = server.healthCheckAttempts + 1;
+	await db.update(serverRegistry).set({
+		healthCheckAttempts: nextAttempt,
+		updatedAt: new Date(),
+	}).where(eq(serverRegistry.url, serverUrl));
+
+	if (nextAttempt < MAX_HEALTH_CHECK_ATTEMPTS) {
+		await scheduleHealthCheck(serverUrl, nextAttempt);
+	} else {
+		debug('health-check: %s exhausted all %d attempts, stopping', serverUrl, MAX_HEALTH_CHECK_ATTEMPTS);
+		console.warn(`[federation] health-check exhausted for ${serverUrl} after ${MAX_HEALTH_CHECK_ATTEMPTS} attempts`);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Worker startup
+// ---------------------------------------------------------------------------
+
 export function startFederationWorker() {
 	createDebug.enable(process.env.DEBUG || '');
-	console.log('[federation] Starting worker...');
+	console.log('[federation] Starting workers...');
 
-	const worker = new Worker<FederationDeliveryJob>(
-		QUEUE_NAME,
+	const deliveryWorker = new Worker<FederationDeliveryJob>(
+		DELIVERY_QUEUE_NAME,
 		processFederationDelivery,
 		{
 			connection: createRedisConnection() as never,
@@ -146,18 +324,18 @@ export function startFederationWorker() {
 		},
 	);
 
-	worker.on('ready', () => {
-		console.log('[federation] Worker connected to Redis and ready');
+	deliveryWorker.on('ready', () => {
+		console.log('[federation] Delivery worker connected to Redis and ready');
 	});
 
-	worker.on('failed', (job, err) => {
+	deliveryWorker.on('failed', (job, err) => {
 		const retriesLeft = (job?.opts.attempts ?? 0) - (job?.attemptsMade ?? 0);
-		debug('job %s (%s) to %s failed (attempt %d, %d retries left): %s', job?.id, job?.name, job?.data.targetUrl, job?.attemptsMade, retriesLeft, err.message);
+		debug('delivery job %s (%s) to %s failed (attempt %d, %d retries left): %s', job?.id, job?.name, job?.data.targetUrl, job?.attemptsMade, retriesLeft, err.message);
 		if (err.cause) debug('cause: %O', err.cause);
 	});
 
-	worker.on('completed', async (job) => {
-		debug('job %s (%s) completed, cleaning up delivery record %s', job.id, job.name, job.data.deliveryJobId);
+	deliveryWorker.on('completed', async (job) => {
+		debug('delivery job %s (%s) completed, cleaning up delivery record %s', job.id, job.name, job.data.deliveryJobId);
 		try {
 			await db.delete(deliveryJobs).where(eq(deliveryJobs.id, job.data.deliveryJobId));
 		} catch (err) {
@@ -165,10 +343,31 @@ export function startFederationWorker() {
 		}
 	});
 
-	worker.on('error', (err) => {
-		console.error('[federation] Worker error:', err);
+	deliveryWorker.on('error', (err) => {
+		console.error('[federation] Delivery worker error:', err);
 	});
 
-	debug('worker started');
-	return worker;
+	const healthCheckWorker = new Worker<HealthCheckJob>(
+		HEALTH_CHECK_QUEUE_NAME,
+		processHealthCheck,
+		{
+			connection: createRedisConnection() as never,
+			concurrency: 3,
+		},
+	);
+
+	healthCheckWorker.on('ready', () => {
+		console.log('[federation] Health-check worker connected to Redis and ready');
+	});
+
+	healthCheckWorker.on('failed', (job, err) => {
+		debug('health-check job %s failed: %s', job?.id, err.message);
+	});
+
+	healthCheckWorker.on('error', (err) => {
+		console.error('[federation] Health-check worker error:', err);
+	});
+
+	debug('all workers started');
+	return { deliveryWorker, healthCheckWorker };
 }

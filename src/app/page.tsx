@@ -12,7 +12,12 @@ export default async function Home() {
 	});
 	if (!session) redirect(`/auth`);
 
+
+
 	return (
-		<PostTestForm />
+		<>
+			<PostTestForm />
+
+		</>
 	);
 }

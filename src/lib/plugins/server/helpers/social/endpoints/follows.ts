@@ -1,8 +1,10 @@
 import { getFederationQueue } from "@/lib/bull";
 import db from "@/lib/db";
 import { blacklistedServers, deliveryJobs, follows, serverRegistry, user } from "@/lib/db/schema";
-import { decryptPayload, getOwnEncryptionSecretKey, verifySignature } from "@/lib/federation/keytools";
+import { verifySignature } from "@/lib/federation/keytools";
+import { peerRegistryUrlOrNull } from "@/lib/federation/peer-registry-url";
 import { discoverAndRegister, DiscoveryError } from "@/lib/federation/registry";
+import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
@@ -20,38 +22,7 @@ const followSchema = z.discriminatedUnion(
 	z.object({
 		method: z.literal("FEDERATE"),
 		signature: z.string(),
-		payload: z.object({
-			ephemeralPublicKey: z.string(),
-			iv: z.string(),
-			ciphertext: z.string(),
-			authTag: z.string(),
-		}).transform((payload, ctx) => {
-			try {
-				const decrypted = decryptPayload(payload, getOwnEncryptionSecretKey());
-				const parsedPayload = JSON.parse(decrypted);
-
-				const parsedPayloadSchema = z.object({
-					following: z.object({
-						id: z.string(),
-						createdAt: z.coerce.date(),
-						followerId: z.string(),
-						followingId: z.string(),
-						accepted: z.boolean(),
-						followerServerUrl: z.string().nullable(),
-					}),
-					federationUrl: z.string(),
-					method: z.literal("FEDERATE"),
-				}).safeParse(parsedPayload);
-				if (!parsedPayloadSchema.success) {
-					ctx.addIssue({ code: "custom", message: "Invalid payload" });
-					return z.never();
-				}
-				return { ...parsedPayloadSchema.data, _raw: decrypted };
-			} catch {
-				ctx.addIssue({ code: "custom", message: "Invalid payload" });
-				return z.never();
-			}
-		}),
+		payload: FollowEnvelopeSchema
 	}),
 	z.object({
 		method: z.literal("UNFOLLOW"),
@@ -64,12 +35,11 @@ export const followUser = createAuthEndpoint("/social/follows", {
 	method: "POST",
 	body: followSchema,
 }, async (context) => {
-	debug("FOLLOW – %s", context.body.method);
+
 	const { method } = context.body;
 	switch (method) {
 		case "INSERT": {
 			const session = await getSessionFromCtx(context);
-			debug("FOLLOW – user: %o", session);
 			if (!session) {
 				return context.json({ error: "Unauthorized" }, { status: 401 });
 			};
@@ -150,7 +120,7 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				followingId: userId,
 				accepted: false,
 				createdAt: new Date(),
-				followerServerUrl: serverUrl,
+				followerServerUrl: peerRegistryUrlOrNull(serverUrl),
 			}).returning();
 
 			const job = await db.insert(deliveryJobs).values({
@@ -221,7 +191,7 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				followingId: following.followingId,
 				accepted,
 				createdAt: new Date(),
-				followingServerUrl: server.url,
+				followingServerUrl: peerRegistryUrlOrNull(server.url),
 			});
 
 			return context.json({ status: "acknowledged", accepted }, { status: 200 });

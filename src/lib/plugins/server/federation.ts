@@ -43,6 +43,17 @@ export const federation = () => {
 						type: "boolean",
 						required: true,
 						index: false
+					},
+					healthCheckAttempts: {
+						type: "number",
+						required: true,
+						index: false,
+						defaultValue: 0
+					},
+					unhealthyReason: {
+						type: "string",
+						required: false,
+						index: false
 					}
 				}
 			},

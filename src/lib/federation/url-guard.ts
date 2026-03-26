@@ -1,6 +1,6 @@
 import createDebug from "debug";
 
-const debug = createDebug("federation:url-guard");
+const debug = createDebug("app:federation:url-guard");
 
 const BLOCKED_HOSTNAMES = new Set([
 	"localhost",
@@ -12,8 +12,21 @@ const BLOCKED_HOSTNAMES = new Set([
 	"169.254.169.254",
 ]);
 
-const DEV_ALLOWED_HOSTNAMES = new Set(["localhost", "127.0.0.1", process.env.DEV_ALLOWED_HOSTNAMES!]);
-debug("DEV_ALLOWED_HOSTNAMES: %o", DEV_ALLOWED_HOSTNAMES);
+const SSRF_BYPASS = process.env.FEDERATION_ALLOW_PRIVATE_URLS === "true";
+
+const DEV_ALLOWED_HOSTNAMES = new Set([
+	"localhost",
+	"127.0.0.1",
+]);
+
+if (typeof process.env.DEV_ALLOWED_HOSTNAMES === "string" && process.env.DEV_ALLOWED_HOSTNAMES.trim() !== "") {
+	for (const h of process.env.DEV_ALLOWED_HOSTNAMES.split(",")) {
+		const hostname = h.trim();
+		if (hostname) DEV_ALLOWED_HOSTNAMES.add(hostname);
+	}
+}
+
+debug("SSRF bypass: %s, DEV_ALLOWED_HOSTNAMES: %s", SSRF_BYPASS, [...DEV_ALLOWED_HOSTNAMES].join(", "));
 function isPrivateIPv4(hostname: string): boolean {
 	const parts = hostname.split(".").map(Number);
 	if (parts.length !== 4 || parts.some((p) => isNaN(p))) return false;
@@ -39,9 +52,8 @@ function isPrivateIPv6(hostname: string): boolean {
 
 /**
  * Throws if the URL points to a private/internal address or uses a
- * non-HTTP(S) protocol. In development, localhost/127.0.0.1 are explicitly
- * allowed for local federation testing while all other safety checks
- * remain enforced.
+ * non-HTTP(S) protocol. Set FEDERATION_ALLOW_PRIVATE_URLS=true to
+ * allow localhost/127.0.0.1 for local federation testing.
  */
 export function assertSafeUrl(url: string): void {
 	let parsed: URL;
@@ -57,7 +69,7 @@ export function assertSafeUrl(url: string): void {
 
 	const hostname = parsed.hostname;
 
-	if (process.env.NODE_ENV === "development" && DEV_ALLOWED_HOSTNAMES.has(hostname)) {
+	if (SSRF_BYPASS && DEV_ALLOWED_HOSTNAMES.has(hostname)) {
 		return;
 	}
 
