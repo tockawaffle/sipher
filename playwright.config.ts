@@ -16,7 +16,7 @@ export default defineConfig({
 		trace: 'on-first-retry',
 	},
 	webServer: {
-		command: 'bun run dev',
+		command: 'cross-env NODE_ENV=test tsx src/server.ts',
 		url: 'http://localhost:3000',
 		reuseExistingServer: !process.env.CI,
 	},

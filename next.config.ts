@@ -1,9 +1,11 @@
 import type { NextConfig } from "next";
 
+const allowedDevOrigins = process.env.DEV_ALLOWED_HOSTNAMES!.split(",").map((hostname) => hostname.trim())
+
 const nextConfig: NextConfig = {
 	/* config options here */
 	reactCompiler: true,
-	allowedDevOrigins: ["172.21.157.201", "172.21.144.1"]
+	allowedDevOrigins
 };
 
 export default nextConfig;
