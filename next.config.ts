@@ -5,7 +5,8 @@ const allowedDevOrigins = process.env.DEV_ALLOWED_HOSTNAMES!.split(",").map((hos
 const nextConfig: NextConfig = {
 	/* config options here */
 	reactCompiler: true,
-	allowedDevOrigins
+	allowedDevOrigins,
+	output: "standalone",
 };
 
 export default nextConfig;

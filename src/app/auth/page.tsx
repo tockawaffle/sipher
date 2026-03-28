@@ -7,11 +7,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { ForgotPasswordForm, ResetPasswordModal, SettingsDropdown, SignInForm, SignUpForm, VerifyEmailModal } from "./components";
 
-export default function AuthPage() {
-
+function AuthPageContent() {
 	const searchParams = useSearchParams();
 	const method = searchParams.get("method") as "signUp" | "signIn";
 	const type = searchParams.get("type");
@@ -116,5 +115,19 @@ export default function AuthPage() {
 				</div>
 			</div>
 		</>
+	);
+}
+
+export default function AuthPage() {
+	return (
+		<Suspense
+			fallback={
+				<div className="flex h-screen w-screen items-center justify-center bg-background">
+					<Loader2 className="h-10 w-10 animate-spin text-primary" />
+				</div>
+			}
+		>
+			<AuthPageContent />
+		</Suspense>
 	);
 }
