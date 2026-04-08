@@ -17,7 +17,7 @@ export default defineConfig({
 	},
 	webServer: {
 		command: 'cross-env NODE_ENV=test tsx src/server.ts',
-		url: 'http://localhost:3000',
+		url: process.env.BETTER_AUTH_URL,
 		reuseExistingServer: !process.env.CI,
 	},
 	projects: [

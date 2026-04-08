@@ -32,6 +32,11 @@ export const DEFAULT_THREAT_MODEL: Record<FederationErrorCode, ThreatPolicy> = {
 		directHealthCheckable: true,
 		description: "TLS failure -- possible MITM, do not proxy",
 	},
+	INVALID_RESPONSE_FROM_TARGET: {
+		proxyEligible: true,
+		directHealthCheckable: false,
+		description: "Invalid response from target -- relay-eligible but you should check the data you're trying to relay, it might be invalid.",
+	},
 	UNKNOWN: {
 		proxyEligible: true,
 		directHealthCheckable: true,

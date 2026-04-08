@@ -348,6 +348,7 @@ export async function POST(request: NextRequest) {
 								createdAt: new Date(),
 								followerServerUrl: peerRegistryUrlOrNull(senderUrl),
 								followingServerUrl: peerRegistryUrlOrNull(targetUrl),
+								acknowledged: true,
 							}).returning();
 
 							const row = following[0];
@@ -360,6 +361,7 @@ export async function POST(request: NextRequest) {
 									followingId: row.followingId,
 									accepted: row.accepted,
 									followerServerUrl: row.followerServerUrl,
+									acknowledged: row.acknowledged
 								},
 								federationUrl: senderUrl,
 								method: "FEDERATE" as const,

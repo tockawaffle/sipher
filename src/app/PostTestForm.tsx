@@ -34,23 +34,29 @@ export function PostTestForm() {
 		}
 	};
 
-	const body = JSON.stringify({
-		method: "REGISTER",
+	const registerDiscoverPayload = {
+		method: "REGISTER" as const,
 		url: process.env.BETTER_AUTH_URL!,
 		publicKey: process.env.FEDERATION_PUBLIC_KEY!,
 		encryptionPublicKey: process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!,
-	});
+	};
 
-	async function forceDiscover(url: string) {
-		console.log("body", body);
-		const response = await fetch(`${url}/discover`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: body,
-		});
-		return response.json();
+	async function forceDiscover(peerBaseUrl: string) {
+		setStatus("Relaying discover…");
+		try {
+			const response = await fetch("/api/dev/relay-discover", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					target: peerBaseUrl,
+					payload: registerDiscoverPayload,
+				}),
+			});
+			const data = await response.json();
+			setStatus(`${response.status} ${response.statusText}\n${JSON.stringify(data, null, 2)}`);
+		} catch (err) {
+			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
 
 	return (

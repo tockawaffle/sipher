@@ -24,7 +24,7 @@ app.prepare().then(async () => {
 	server.listen(port)
 
 	console.log(
-		`> Server listening at http://localhost:${port} as ${dev ? 'development' : process.env.NODE_ENV
+		`> Server listening at ${process.env.BETTER_AUTH_URL!} as ${dev ? 'development' : process.env.NODE_ENV
 		}`
 	)
 })

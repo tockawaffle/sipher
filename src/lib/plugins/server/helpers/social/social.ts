@@ -155,6 +155,12 @@ export default {
 					field: "url"
 				}
 			},
+			acknowledged: {
+				type: "boolean",
+				required: true,
+				index: false,
+				defaultValue: false,
+			},
 		}
 	},
 	deliveryJobs: {

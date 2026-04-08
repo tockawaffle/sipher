@@ -2,7 +2,6 @@ import { federation } from "@/plugins/server/federation";
 import { sipherSocial } from '@/plugins/server/social';
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware } from "better-auth/api";
 import { bearer, haveIBeenPwned, openAPI, testUtils, twoFactor, username } from "better-auth/plugins";
 import db from "./db";
 import * as schema from "./db/schema";
@@ -64,20 +63,6 @@ const bAuth = betterAuth({
 		delete: async (key) => {
 			await getRedisClient().del(key);
 		}
-	},
-	hooks: {
-		after: createAuthMiddleware(async (context) => {
-			if (!context.path) return;
-			const path = context.path;
-
-			switch (true) {
-				case path.startsWith("/sign-up"):
-					// key generation logic
-					break;
-				default:
-					break;
-			}
-		})
 	},
 	plugins: [
 		username(),

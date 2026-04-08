@@ -5,6 +5,10 @@ import { clearServerRegistry, getServerByUrl, insertServerEcho, } from "./helper
 const debug = createDebug("test:discover");
 
 const url = "http://172.21.157.201:3001";
+const serverUrl = process.env.BETTER_AUTH_URL!;
+if (!serverUrl) {
+	throw new Error("BETTER_AUTH_URL is not set");
+}
 
 test.beforeEach(async () => {
 	await clearServerRegistry()
@@ -14,7 +18,7 @@ test.afterEach(async () => {
 })
 
 test("discover server", async ({ request, page }) => {
-	const response = await request.post(`http://192.168.3.26:3000/discover`, {
+	const response = await request.post(`${serverUrl}/discover`, {
 		data: {
 			method: "REGISTER",
 			url: new URL(url).toString(),
@@ -31,12 +35,12 @@ test("discover server", async ({ request, page }) => {
 	expect(body.echo).toBeInstanceOf(Object)
 
 	await insertServerEcho(
-		"http://192.168.3.26:3000",
+		serverUrl,
 		body.echo.publicKey as string,
 		body.echo.encryptionPublicKey as string,
 	);
 
-	const server = await getServerByUrl("http://192.168.3.26:3000");
+	const server = await getServerByUrl(serverUrl);
 	expect(server).toBeDefined()
 	expect(server?.publicKey).toBe(body.echo.publicKey as string)
 });

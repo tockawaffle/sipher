@@ -18,6 +18,7 @@ export type FederationErrorCode =
 	| "CONN_RESET"
 	| "TIMEOUT"
 	| "TLS_ERROR"
+	| "INVALID_RESPONSE_FROM_TARGET"
 	| "UNKNOWN";
 
 export class FederationError extends Error {
@@ -243,6 +244,9 @@ async function attemptProxyRoute(
 	});
 
 	if (!proxyResponse.ok) {
+		if (proxyResponse.status === 502) {
+			throw new FederationError("INVALID_RESPONSE_FROM_TARGET", proxyPeer.url);
+		}
 		throw new Error(`Proxy ${proxyPeer.url} returned ${proxyResponse.status}`);
 	}
 

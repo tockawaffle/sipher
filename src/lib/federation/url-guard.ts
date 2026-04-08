@@ -1,4 +1,5 @@
 import createDebug from "debug";
+import { z } from "zod";
 
 const debug = createDebug("app:federation:url-guard");
 
@@ -12,7 +13,17 @@ const BLOCKED_HOSTNAMES = new Set([
 	"169.254.169.254",
 ]);
 
-const SSRF_BYPASS = process.env.FEDERATION_ALLOW_PRIVATE_URLS === "true";
+/** Normalize allowlist tokens so `host:port` and full URLs map to URL.hostname. */
+function allowlistHostname(entry: string): string | null {
+	const t = entry.trim();
+	if (!t) return null;
+	try {
+		if (t.includes("://")) return new URL(t).hostname;
+		return new URL(`http://${t}`).hostname;
+	} catch {
+		return t;
+	}
+}
 
 const DEV_ALLOWED_HOSTNAMES = new Set([
 	"localhost",
@@ -21,17 +32,24 @@ const DEV_ALLOWED_HOSTNAMES = new Set([
 
 if (typeof process.env.DEV_ALLOWED_HOSTNAMES === "string" && process.env.DEV_ALLOWED_HOSTNAMES.trim() !== "") {
 	for (const h of process.env.DEV_ALLOWED_HOSTNAMES.split(",")) {
-		const hostname = h.trim();
+		const hostname = allowlistHostname(h);
 		if (hostname) DEV_ALLOWED_HOSTNAMES.add(hostname);
 	}
 }
 
-debug("SSRF bypass: %s, DEV_ALLOWED_HOSTNAMES: %s", SSRF_BYPASS, [...DEV_ALLOWED_HOSTNAMES].join(", "));
-function isPrivateIPv4(hostname: string): boolean {
-	const parts = hostname.split(".").map(Number);
-	if (parts.length !== 4 || parts.some((p) => isNaN(p))) return false;
+debug("DEV_ALLOWED_HOSTNAMES: %s", [...DEV_ALLOWED_HOSTNAMES].join(", "));
 
-	const [a, b] = parts;
+const ipv4Octet = z.number().int().min(0).max(255);
+const ipv4OctetsSchema = z
+	.ipv4()
+	.transform((s) => s.split(".").map((octet) => Number.parseInt(octet, 10)))
+	.pipe(z.tuple([ipv4Octet, ipv4Octet, ipv4Octet, ipv4Octet]));
+
+function isPrivateIPv4(hostname: string): boolean {
+	const parsed = ipv4OctetsSchema.safeParse(hostname);
+	if (!parsed.success) return false;
+
+	const [a, b] = parsed.data;
 	if (a === 127) return true;                       // 127.0.0.0/8
 	if (a === 10) return true;                        // 10.0.0.0/8
 	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
@@ -42,18 +60,46 @@ function isPrivateIPv4(hostname: string): boolean {
 	return false;
 }
 
+const ipv6HostNormalized = z
+	.string()
+	.transform((h) => h.replace(/^\[|\]$/g, "").toLowerCase())
+	.pipe(z.ipv6());
+
+const ipv6Hextet16 = z
+	.string()
+	.regex(/^[0-9a-f]{1,4}$/)
+	.transform((s) => Number.parseInt(s, 16))
+	.pipe(z.number().int().min(0).max(0xffff));
+
+/** First 16-bit group, or null if address starts with `::` (no leading hextet) / not colon-shaped. */
+function ipv6LeadingHextet(bare: string): string | null {
+	if (bare.startsWith("::")) return null;
+	const colon = bare.indexOf(":");
+	if (colon === -1) return null;
+	return bare.slice(0, colon);
+}
+
 function isPrivateIPv6(hostname: string): boolean {
-	const bare = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	const host = ipv6HostNormalized.safeParse(hostname);
+	if (!host.success) return false;
+
+	const bare = host.data;
 	if (bare === "::1" || bare === "::0" || bare === "::") return true;
-	if (bare.startsWith("fc") || bare.startsWith("fd")) return true;  // ULA
-	if (bare.startsWith("fe80")) return true;                          // link-local
-	return false;
+
+	const first = ipv6LeadingHextet(bare);
+	if (first === null) return false;
+
+	const hextet = ipv6Hextet16.safeParse(first);
+	if (!hextet.success) return false;
+
+	const n = hextet.data;
+	return (n >= 0xfc00 && n <= 0xfdff) || (n >= 0xfe80 && n <= 0xfebf); // ULA fc00::/7, link-local fe80::/10
 }
 
 /**
  * Throws if the URL points to a private/internal address or uses a
- * non-HTTP(S) protocol. Set FEDERATION_ALLOW_PRIVATE_URLS=true to
- * allow localhost/127.0.0.1 for local federation testing.
+ * non-HTTP(S) protocol. Hosts listed in `DEV_ALLOWED_HOSTNAMES` are always allowed
+ * (use bare host or `host:port` / full URL — port is stripped to match `URL.hostname`).
  */
 export function assertSafeUrl(url: string): void {
 	let parsed: URL;
@@ -69,7 +115,8 @@ export function assertSafeUrl(url: string): void {
 
 	const hostname = parsed.hostname;
 
-	if (SSRF_BYPASS && DEV_ALLOWED_HOSTNAMES.has(hostname)) {
+	// Explicit dev allowlist wins (host-only match; list entries may use host:port — see allowlistHostname).
+	if (DEV_ALLOWED_HOSTNAMES.has(hostname)) {
 		return;
 	}
 

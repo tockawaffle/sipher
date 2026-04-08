@@ -1,6 +1,6 @@
 import db from '@/lib/db';
 import { serverRegistry } from '@/lib/db/schema';
-import { federationFetch, FederationError, type FederationErrorCode } from '@/lib/federation/fetch';
+import { FederationError, federationFetch, type FederationErrorCode } from '@/lib/federation/fetch';
 import { assertSafeUrl } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
 import { eq } from 'drizzle-orm';
@@ -112,7 +112,7 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 
 	debug('sending mutual REGISTER to %s', serverUrl);
 	try {
-		await federationFetch(serverUrl + '/discover', {
+		const { response: registerResponse } = await federationFetch(serverUrl + '/discover', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
@@ -123,6 +123,19 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 			}),
 			serverUrl,
 		});
+
+		// The echo carries the remote server's canonical keys. Use them to
+		// confirm the registration we inserted from the GET above.
+		if (!registerResponse.ok) {
+			throw new DiscoveryError(`Failed to register with ${serverUrl}: ${registerResponse.status}`);
+		}
+
+		const echoBody = await registerResponse.json().catch(() => null);
+		const echo = echoBody?.echo as { url?: string; publicKey?: string; encryptionPublicKey?: string } | undefined;
+		if (echo?.url && echo.publicKey && echo.encryptionPublicKey) {
+			debug('updating registration for %s from echo', serverUrl);
+			await upsertServer(echo.url, echo.publicKey, echo.encryptionPublicKey);
+		}
 	} catch (err) {
 		debug('mutual REGISTER to %s failed (non-fatal): %s', serverUrl, err instanceof Error ? err.message : err);
 	}
