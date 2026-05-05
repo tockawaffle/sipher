@@ -1,4 +1,4 @@
-import { postContentSchema } from "@/lib/plugins/server/helpers/social/social";
+import { postContentSchema } from "@/lib/plugins/social/server/helpers/social";
 import { z } from "zod";
 import { createEncryptedEnvelopeSchema } from "../EncryptedEnvelope";
 

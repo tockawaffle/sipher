@@ -18,7 +18,7 @@ import { expect, test } from "@playwright/test"
 import http from "node:http"
 import {
 	clearTables,
-	generateKeypair,
+	generateEnvKeyPair,
 	getBlacklistedServer,
 	getChallengesByServerUrl,
 	seedChallenge,
@@ -70,7 +70,7 @@ test.afterEach(async () => { await clearTables() })
 // ---------------------------------------------------------------------------
 test.describe("SSRF protection", () => {
 	test("REGISTER rejects loopback URLs", async ({ request }) => {
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		const trap = createTrapServer(keys.signingPublicKey, keys.encryptionPublicKey)
 		const port = await trap.start()
 
@@ -102,7 +102,7 @@ test.describe("SSRF protection", () => {
 		]
 
 		for (const url of internalUrls) {
-			const keys = generateKeypair()
+			const keys = generateEnvKeyPair()
 			const res = await request.post(`${BASE}/discover`, {
 				data: {
 					method: "REGISTER",
@@ -119,7 +119,7 @@ test.describe("SSRF protection", () => {
 	})
 
 	test("DISCOVER rejects stored internal URLs", async ({ request }) => {
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer("http://127.0.0.1:9999", keys.signingPublicKey, keys.encryptionPublicKey)
 
 		const envelopePayload = JSON.stringify({
@@ -176,12 +176,12 @@ test.describe("Blacklist enforcement (fixed)", () => {
 	}
 
 	test("blacklisted server is rejected by rotate/init", async ({ request }) => {
-		const oldKeys = generateKeypair()
+		const oldKeys = generateEnvKeyPair()
 		const serverUrl = "https://blacklisted-server.example"
 		await seedServer(serverUrl, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 		await blacklistServer(serverUrl, request as any)
 
-		const newKeys = generateKeypair()
+		const newKeys = generateEnvKeyPair()
 		const initRes = await request.post(`${BASE}/discover/rotate/init`, {
 			data: {
 				url: serverUrl,
@@ -196,7 +196,7 @@ test.describe("Blacklist enforcement (fixed)", () => {
 
 	test("blacklisted server is rejected by rotate/confirm", async ({ request }) => {
 		const serverUrl = "https://blacklisted-confirm.example"
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 		await blacklistServer(serverUrl, request as any)
 
@@ -218,7 +218,7 @@ test.describe("Blacklist enforcement (fixed)", () => {
 test.describe("Race condition fixed on rotate/confirm", () => {
 	test("concurrent requests are serialised by the row lock", async () => {
 		const serverUrl = "https://race-target.example"
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
 		await seedChallenge({
@@ -257,11 +257,11 @@ test.describe("Race condition fixed on rotate/confirm", () => {
 test.describe("Challenge deduplication (fixed)", () => {
 	test("second init is rejected while a challenge is pending", async ({ request }) => {
 		const serverUrl = "https://dedup-target.example"
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
-		const newKeys1 = generateKeypair()
-		const newKeys2 = generateKeypair()
+		const newKeys1 = generateEnvKeyPair()
+		const newKeys2 = generateEnvKeyPair()
 
 		const res1 = await request.post(`${BASE}/discover/rotate/init`, {
 			data: {
@@ -289,7 +289,7 @@ test.describe("Challenge deduplication (fixed)", () => {
 
 	test("init succeeds after the previous challenge expires", async ({ request }) => {
 		const serverUrl = "https://dedup-expire.example"
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
 		await seedChallenge({
@@ -297,7 +297,7 @@ test.describe("Challenge deduplication (fixed)", () => {
 			expiresAt: new Date(Date.now() - 1000),
 		})
 
-		const newKeys = generateKeypair()
+		const newKeys = generateEnvKeyPair()
 		const res = await request.post(`${BASE}/discover/rotate/init`, {
 			data: {
 				url: serverUrl,
@@ -314,7 +314,7 @@ test.describe("Challenge deduplication (fixed)", () => {
 
 	test("blacklisted server cannot reset attempts via new init", async ({ request }) => {
 		const serverUrl = "https://reset-blocked.example"
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer(serverUrl, keys.signingPublicKey, keys.encryptionPublicKey)
 
 		await seedChallenge({
@@ -338,7 +338,7 @@ test.describe("Challenge deduplication (fixed)", () => {
 		const bl = await getBlacklistedServer(serverUrl)
 		expect(bl).toBeDefined()
 
-		const freshKeys = generateKeypair()
+		const freshKeys = generateEnvKeyPair()
 		const initRes = await request.post(`${BASE}/discover/rotate/init`, {
 			data: {
 				url: serverUrl,
@@ -355,7 +355,7 @@ test.describe("Challenge deduplication (fixed)", () => {
 // ---------------------------------------------------------------------------
 test.describe("Envelope validation (fixed)", () => {
 	test("envelope with mismatched publicKey fingerprint is rejected", async ({ request }) => {
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer("https://sig-test.example", keys.signingPublicKey, keys.encryptionPublicKey)
 
 		const badEnvelope = encryptPayload(
@@ -380,7 +380,7 @@ test.describe("Envelope validation (fixed)", () => {
 	})
 
 	test("envelope with placeholder values is rejected", async ({ request }) => {
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		await seedServer("https://sig-test2.example", keys.signingPublicKey, keys.encryptionPublicKey)
 
 		const forgeryEnvelope = encryptPayload(
@@ -401,7 +401,7 @@ test.describe("Envelope validation (fixed)", () => {
 	})
 
 	test("envelope with correct fingerprints passes validation", async ({ request }) => {
-		const keys = generateKeypair()
+		const keys = generateEnvKeyPair()
 		const trap = createTrapServer(keys.signingPublicKey, keys.encryptionPublicKey)
 		const port = await trap.start()
 		const peerUrl = `http://127.0.0.1:${port}`
@@ -442,8 +442,8 @@ test.describe("Envelope validation (fixed)", () => {
 // ---------------------------------------------------------------------------
 test.describe("Information disclosure", () => {
 	test("GET /discover only returns url and isHealthy for peers", async ({ request }) => {
-		const keys1 = generateKeypair()
-		const keys2 = generateKeypair()
+		const keys1 = generateEnvKeyPair()
+		const keys2 = generateEnvKeyPair()
 		await seedServer("https://peer-one.example", keys1.signingPublicKey, keys1.encryptionPublicKey)
 		await seedServer("https://peer-two.example", keys2.signingPublicKey, keys2.encryptionPublicKey)
 

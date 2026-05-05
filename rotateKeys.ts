@@ -32,7 +32,7 @@ interface FedKeys {
 	encryptionSecretKey: string;
 }
 
-function generateKeypair(): FedKeys {
+function generateEnvKeyPair(): FedKeys {
 	const signing = nacl.sign.keyPair();
 	const encryption = nacl.box.keyPair();
 	return {
@@ -131,7 +131,7 @@ if (resumeIdx !== -1) {
 		process.exit(1);
 	}
 } else {
-	newFedKeys = generateKeypair();
+	newFedKeys = generateEnvKeyPair();
 }
 
 // ---------------------------------------------------------------------------

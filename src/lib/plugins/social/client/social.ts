@@ -1,4 +1,7 @@
+import { canonicalPostBytes } from "@/lib/identity/postSignature";
+import { signWithLocalIdentity } from "@/lib/identity/sign";
 import type { BetterAuthClientPlugin } from "better-auth/client";
+import { v4 } from "uuid";
 import { z } from "zod";
 import type { sipherSocial } from "../server/social";
 
@@ -27,15 +30,31 @@ export const sipherSocialClientPlugin = () => {
 		$InferServerPlugin: {} as ReturnType<SipherSocialPlugin>,
 		getActions($fetch, $store, options) {
 			return {
-				createPost: async (content: z.infer<typeof clientPostContentSchmema>) => {
-
+				/**
+				 * Author and submit a post.
+				 *
+				 * Each post is detached-Ed25519-signed by the user's mnemonic-derived
+				 * identity key. The matching secret is decrypted in memory only for
+				 * the duration of the signing call (see `signWithLocalIdentity`),
+				 * then zeroed. The server verifies the signature against the user's
+				 * registered `signingPublicKey` before persisting the post.
+				 *
+				 * @param content   Content blocks (text/media/link).
+				 * @param userId    Better Auth user id of the author (the same id
+				 *                  used when the identity was created).
+				 * @param password  Master password that unlocks the local identity.
+				 */
+				createPost: async (
+					content: z.infer<typeof clientPostContentSchmema>,
+					userId: string,
+					password: string,
+				) => {
 					// Allow only these combinations of content:
 					// 1. Text only
 					// 2. Text and images
 					// 3. Text, images and videos
 					// 4. Text and audio
 					// No other combinations are allowed
-					// Check the content types and throw an error if the combination is not allowed
 					const contentTypes = content.map((block) => block.type);
 					if (contentTypes.length > 1) {
 						if (contentTypes.includes("image") && contentTypes.includes("audio")) {
@@ -44,7 +63,6 @@ export const sipherSocialClientPlugin = () => {
 							throw new Error("Videos and audios cannot be combined under the same post.")
 						}
 					}
-					// Check if the content amount per type is under the allowed limits
 					const imageCount = content.filter((block) => block.type === "image").length;
 					const videoCount = content.filter((block) => block.type === "video").length;
 					const audioCount = content.filter((block) => block.type === "audio").length;
@@ -98,47 +116,65 @@ export const sipherSocialClientPlugin = () => {
 						});
 					}
 
-					const { data, error } = await $fetch<{
-						postId: string;
-					}>("/social/posts", {
-						method: "POST",
-						body: {
-							content: resolvedContent,
+					const postId = v4()
+					const publishedAt = new Date().toISOString();
+
+					const signed = await signWithLocalIdentity(
+						userId,
+						password,
+						canonicalPostBytes({ postId, authorId: userId, publishedAt, content: resolvedContent }),
+					);
+					if (!signed) {
+						throw new Error("No local identity found on this device. Create one before posting.");
+					}
+
+					const signature = Buffer.from(signed.signature).toString("base64");
+
+					const { data, error } = await $fetch<{ id: string; federationDeliveriesQueued: number }>(
+						"/social/posts",
+						{
+							method: "POST",
+							body: {
+								postId,
+								publishedAt,
+								signature,
+								content: resolvedContent,
+							},
 						},
-					});
+					);
 
 					if (error || !data) {
 						throw new Error("Failed to create post");
 					}
 
-					return data.postId;
+					return { id: data.id, federationDeliveriesQueued: data.federationDeliveriesQueued };
 				},
-			followUser: async (userId: string, federationUrl?: string) => {
-				const body: Record<string, string> = {
-					method: "INSERT",
-					userId,
-				};
-				if (federationUrl) {
-					body.federationUrl = federationUrl;
-				}
-
-				const { data, error } = await $fetch<{
-					following: {
-						id: string;
-						createdAt: Date;
-						followerId: string;
-						followingId: string;
-						accepted: boolean;
+				followUser: async (userId: string, federationUrl?: string) => {
+					const body: Record<string, string> = {
+						method: "INSERT",
+						userId,
 					};
-				}>("/social/follows", {
-					method: "POST",
-					body,
-				});
-				if (error || !data) {
-					throw new Error("Failed to follow user");
+					if (federationUrl) {
+						body.federationUrl = federationUrl;
+					}
+
+					const { data, error } = await $fetch<{
+						following: {
+							id: string;
+							createdAt: Date;
+							followerId: string;
+							followingId: string;
+							accepted: boolean;
+						};
+					}>("/social/follows", {
+						method: "POST",
+						body,
+					});
+					if (error || !data) {
+						throw new Error("Failed to follow user");
+					}
+					return data.following;
 				}
-				return data.following;
-			}
 			}
 		},
 	} satisfies BetterAuthClientPlugin;

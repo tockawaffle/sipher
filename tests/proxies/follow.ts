@@ -37,7 +37,7 @@ interface FedKeys {
 	encryptionSecretKey: string;
 }
 
-function generateKeypair(): FedKeys {
+function generateEnvKeyPair(): FedKeys {
 	const signing = nacl.sign.keyPair();
 	const encryption = nacl.box.keyPair();
 	return {
@@ -350,7 +350,7 @@ if (!isFallbackMode) {
 	{
 		const testName = "reject mismatched signing key";
 		try {
-			const fakeKeys = generateKeypair();
+			const fakeKeys = generateEnvKeyPair();
 
 			const innerPayload = JSON.stringify({ action: "bad-key-test" });
 			const targetEncKey = new Uint8Array(Buffer.from(targetInfo.encryptionPublicKey, "base64"));
@@ -396,7 +396,7 @@ if (!isFallbackMode) {
 	{
 		const testName = "reject unknown sender";
 		try {
-			const unknownKeys = generateKeypair();
+			const unknownKeys = generateEnvKeyPair();
 			const unknownOrigin = "https://totally-unknown-federation-" + crypto.randomUUID().slice(0, 8) + ".test";
 
 			const innerPayload = JSON.stringify({ action: "unknown-sender-test" });

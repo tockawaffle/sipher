@@ -111,7 +111,21 @@ export default {
 				type: "string",
 				required: false,
 				index: true,
-			}
+			},
+			/**
+			 * Base64-encoded Ed25519 detached signature produced client-side by
+			 * the author's mnemonic-derived identity key. Covers the canonical
+			 * post payload defined in `src/lib/identity/postSignature.ts`.
+			 *
+			 * Optional so federated/legacy posts that arrive without a per-user
+			 * signature can still be stored, but locally-authored posts always
+			 * have one — the createPost endpoint rejects requests that don't.
+			 */
+			authorSignature: {
+				type: "string",
+				required: false,
+				index: false,
+			},
 		}
 	},
 	follows: {

@@ -1,7 +1,7 @@
 import type { BetterAuthPlugin } from "better-auth";
 
-import * as socialEndpoints from "./helpers/social/endpoints";
-import socialSchema from "./helpers/social/social";
+import * as socialEndpoints from "./helpers/endpoints";
+import socialSchema from "./helpers/social";
 
 export const sipherSocial = () => {
 	return {

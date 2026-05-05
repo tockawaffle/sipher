@@ -5,12 +5,23 @@ import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
 
 export function PostTestForm() {
+	const { data: session } = authClient.useSession();
 	const [text, setText] = useState("");
 	const [files, setFiles] = useState<File[]>([]);
+	const [password, setPassword] = useState("");
 	const [status, setStatus] = useState<string | null>(null);
 
 	const handleSubmit = async () => {
-		setStatus("Submitting...");
+		if (!session?.user.id) {
+			setStatus("Not signed in.");
+			return;
+		}
+		if (!password) {
+			setStatus("Enter your master password to unlock the signing key.");
+			return;
+		}
+
+		setStatus("Signing & submitting...");
 		try {
 			const content: { type: "text" | "image"; value: string | File }[] = [];
 
@@ -27,7 +38,7 @@ export function PostTestForm() {
 				return;
 			}
 
-			const result = await authClient.createPost(content);
+			const result = await authClient.createPost(content, session.user.id, password);
 			setStatus(`Done: ${JSON.stringify(result)}`);
 		} catch (err) {
 			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -88,6 +99,19 @@ export function PostTestForm() {
 						))}
 					</div>
 				)}
+			</div>
+
+			<div style={{ marginBottom: 12 }}>
+				<label style={{ display: "block", marginBottom: 4, fontWeight: 600 }}>
+					Master password (unlocks signing key)
+				</label>
+				<input
+					type="password"
+					value={password}
+					onChange={(e) => setPassword(e.target.value)}
+					placeholder="••••••••••••"
+					style={{ width: "100%", padding: 8, fontSize: 14 }}
+				/>
 			</div>
 
 			<button

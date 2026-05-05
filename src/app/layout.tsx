@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Metadata } from "next";
 import { ThemeProvider } from "next-themes";
 import { Bebas_Neue, DM_Sans, Space_Mono } from "next/font/google";
@@ -46,8 +47,10 @@ export default function RootLayout({
 					enableSystem
 					disableTransitionOnChange
 				>
-					<Toaster />
-					{children}
+					<TooltipProvider>
+						<Toaster />
+						{children}
+					</TooltipProvider>
 				</ThemeProvider>
 			</body>
 		</html>

@@ -46,12 +46,23 @@ export function SignUpForm({
 			return;
 		}
 
+		const username = email.split("@")[0];
+		// Check if username is already taken
+		const check = await authClient.isUsernameAvailable({ username });
+		if (!check) {
+			form.setError("root", { message: "Username is already taken" });
+			toast.error("Username is already taken");
+			return;
+		}
+
 		await authClient.signUp.email({
 			email,
 			password,
-			name: email.split("@")[0],
+			name: username,
+			username,
 		}, {
-			onSuccess: () => {
+			onSuccess: (res) => {
+				console.debug(JSON.stringify(res, null, 2));
 				console.debug(`[SignUpForm] registration successful for ${email}`);
 				toast.success("Registration successful, please check your email for the verification link!");
 				onSuccess(email);

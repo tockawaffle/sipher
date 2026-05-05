@@ -1,14 +1,17 @@
 import { getFederationQueue, type FederationDeliveryJob } from "@/lib/bull";
 import db from "@/lib/db";
-import { deliveryJobs, follows, posts, serverRegistry } from "@/lib/db/schema";
+import { deliveryJobs, follows, posts, serverRegistry, userIdentityKeys } from "@/lib/db/schema";
 import { encryptPayload } from "@/lib/federation/keytools";
 import { applyFederatedPostInTransaction } from "@/lib/federation/proxy-helpers/federated-post";
+import { canonicalPostBytes } from "@/lib/identity/postSignature";
+import minioClient from "@/lib/plugins/storage/server/minio.client";
 import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
 import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
-import minioClient from "@/plugins/server/storage/minio.client";
+import { base58_to_binary } from "base58-js";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
+import nacl from "tweetnacl";
 import { z } from "zod";
 import { postContentSchema } from "../social";
 
@@ -20,7 +23,14 @@ const federatedPostRequestSchema = z.object({
 	signature: z.string(),
 });
 
-const createPostBodySchema = z.union([federatedPostRequestSchema, postContentSchema]);
+const userPostRequestSchema = z.object({
+	postId: z.uuidv4(),
+	publishedAt: z.iso.datetime(),
+	signature: z.string().min(1),
+	content: postContentSchema,
+});
+
+const createPostBodySchema = z.union([federatedPostRequestSchema, userPostRequestSchema]);
 
 export const createPost = createAuthEndpoint("/social/posts", {
 	method: "POST",
@@ -28,7 +38,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 }, async (context) => {
 	const body = context.body;
 
-	if (typeof body === "object" && body !== null && "method" in body && body.method === "FEDERATE_POST") {
+	if ("method" in body) {
 		const { payload: encryptedPayload, signature } = body;
 
 		const parsedEnvelope = PostEnvelopeSchema.safeParse(encryptedPayload);
@@ -80,11 +90,49 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		);
 	}
 
-	const content = body;
+	const { postId, publishedAt, signature, content } = body;
 	const user = await getSessionFromCtx(context);
 
 	if (!user) {
 		return context.json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	// Verify the post against the user's registered identity key. Without a
+	// matching identity row the user cannot author posts — they must complete
+	// the identity-creation flow first.
+	const [identity] = await db
+		.select({ signingPublicKey: userIdentityKeys.signingPublicKey })
+		.from(userIdentityKeys)
+		.where(eq(userIdentityKeys.userId, user.user.id))
+		.limit(1);
+
+	if (!identity) {
+		return context.json(
+			{ error: "No identity registered for this user", code: "IDENTITY_NOT_REGISTERED" },
+			{ status: 412 },
+		);
+	}
+
+	let signatureValid = false;
+	try {
+		const publicKey = base58_to_binary(identity.signingPublicKey);
+		const signatureBytes = Uint8Array.from(Buffer.from(signature, "base64"));
+		const message = canonicalPostBytes({
+			postId,
+			authorId: user.user.id,
+			publishedAt,
+			content,
+		});
+		signatureValid = nacl.sign.detached.verify(message, signatureBytes, publicKey);
+	} catch (err) {
+		debug("signature verification threw: %o", err);
+	}
+
+	if (!signatureValid) {
+		return context.json(
+			{ error: "Invalid post signature", code: "INVALID_POST_SIGNATURE" },
+			{ status: 400 },
+		);
 	}
 
 	const isPrivate = user.user.isPrivate;
@@ -94,8 +142,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		none: false,
 	}[user.user.postPropagationPolicy as "all" | "followers" | "none"] ?? true;
 
-	const postId = crypto.randomUUID();
-	const published = new Date();
+	const published = new Date(publishedAt);
 	const inserted = await db
 		.insert(posts)
 		.values({
@@ -108,6 +155,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 			federationUrl: process.env.BETTER_AUTH_URL!,
 			federationPostId: postId,
 			createdAt: new Date(),
+			authorSignature: signature,
 		})
 		.returning({ id: posts.id });
 

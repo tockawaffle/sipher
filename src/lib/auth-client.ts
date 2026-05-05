@@ -1,6 +1,7 @@
 import { twoFactorClient, usernameClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
-import { sipherSocialClientPlugin } from "./plugins/client/social";
+import { sipherOvenClientPlugin } from "./plugins/oven/client";
+import { sipherSocialClientPlugin } from "./plugins/social/client/social";
 
 export const authClient = createAuthClient({
 	fetchOptions: {},
@@ -8,5 +9,6 @@ export const authClient = createAuthClient({
 		usernameClient(),
 		twoFactorClient(),
 		sipherSocialClientPlugin(),
+		sipherOvenClientPlugin(),
 	]
 })

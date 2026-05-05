@@ -61,6 +61,7 @@ export const twoFactor = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").default(true),
   },
   (table) => [
     index("twoFactor_secret_idx").on(table.secret),
@@ -83,6 +84,7 @@ export const posts = pgTable(
     createdAt: timestamp("created_at").notNull(),
     federationUrl: text("federation_url"),
     federationPostId: text("federation_post_id"),
+    authorSignature: text("author_signature"),
   },
   (table) => [
     index("posts_federationUrl_idx").on(table.federationUrl),
@@ -198,12 +200,37 @@ export const blacklistedServers = pgTable(
   (table) => [index("blacklistedServers_serverUrl_idx").on(table.serverUrl)],
 );
 
+export const userIdentityKeys = pgTable("user_identity_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  signingPublicKey: text("signing_public_key").notNull().unique(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  createdAt: timestamp("created_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+export const olmDeviceKeys = pgTable("olm_device_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  deviceId: text("device_id").notNull().unique(),
+  bundleJson: text("bundle_json").notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   twoFactors: many(twoFactor),
   postss: many(posts),
   mutess: many(mutes),
   blockss: many(blocks),
+  userIdentityKeys: many(userIdentityKeys),
+  olmDeviceKeyss: many(olmDeviceKeys),
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -281,3 +308,20 @@ export const serverRegistryRelations = relations(
     followss: many(follows),
   }),
 );
+
+export const userIdentityKeysRelations = relations(
+  userIdentityKeys,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [userIdentityKeys.userId],
+      references: [user.id],
+    }),
+  }),
+);
+
+export const olmDeviceKeysRelations = relations(olmDeviceKeys, ({ one }) => ({
+  user: one(user, {
+    fields: [olmDeviceKeys.userId],
+    references: [user.id],
+  }),
+}));

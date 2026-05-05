@@ -1,7 +1,7 @@
 import Bun from "bun";
 import nacl from "tweetnacl";
 
-export async function generateKeyPair() {
+export async function generateEnvKeyPair() {
 	const envFile = Bun.file(".env.local");
 	if (!await envFile.exists()) {
 		throw new Error("No .env.local file found");
@@ -40,4 +40,4 @@ export async function generateKeyPair() {
 	console.log("Federation keys generated and written to .env.local");
 }
 
-generateKeyPair();
+generateEnvKeyPair();

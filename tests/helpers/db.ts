@@ -4,7 +4,7 @@ import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib
 import { eq } from "drizzle-orm";
 import nacl from "tweetnacl";
 
-export function generateKeypair() {
+export function generateEnvKeyPair() {
 	const signing = nacl.sign.keyPair();
 	const encryption = nacl.box.keyPair();
 	return {
@@ -29,7 +29,7 @@ export async function seedServer(url: string, publicKey: string, encryptionPubli
 }
 
 export async function seedChallenge(overrides?: Partial<typeof rotateChallengeTokens.$inferInsert>) {
-	const keys = generateKeypair()
+	const keys = generateEnvKeyPair()
 	const defaults = {
 		id: crypto.randomUUID(),
 		serverUrl: "https://test-server.com",

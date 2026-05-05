@@ -1,12 +1,13 @@
-import { federation } from "@/plugins/server/federation";
-import { sipherSocial } from '@/plugins/server/social';
+import { federation } from "@/lib/plugins/federation/server/federation";
+import { sipherOven } from "@/lib/plugins/oven/server/index";
+import { sipherSocial } from '@/lib/plugins/social/server/social';
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
 import { bearer, haveIBeenPwned, openAPI, testUtils, twoFactor, username } from "better-auth/plugins";
 import db from "./db";
 import * as schema from "./db/schema";
 import EmailService from "./mail";
-import minioClient from "./plugins/server/storage/minio.client";
+import minioClient from "./plugins/storage/server/minio.client";
 import getRedisClient from "./redis";
 
 const isTest = process.env.NODE_ENV === "test";
@@ -73,6 +74,7 @@ const bAuth = betterAuth({
 		federation(),
 		openAPI(),
 		testUtils(), // TODO: Add a conditional plugin for test utils in development
+		sipherOven(),
 		bearer()
 	],
 	// This is disabled by default, but I'll keep this here for ease of mind.
@@ -94,7 +96,7 @@ const bAuth = betterAuth({
 				required: false,
 				index: false,
 				enum: ["all", "followers", "none"] as const,
-			}
+			},
 		}
 	}
 });

@@ -130,7 +130,7 @@ export const federation = () => {
 						index: false
 					}
 				}
-			}
+			},
 		}
 	} satisfies BetterAuthPlugin;
 }

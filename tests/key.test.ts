@@ -9,11 +9,11 @@
  * - Blacklists server after too many failed attempts
  * - Full init → confirm happy path that rotates both keys
  */
-import { expect, test } from "@playwright/test"
-import createDebug from "debug"
 import type { EncryptedEnvelope } from "@/lib/federation/keytools"
 import { decryptPayload, encryptPayload, signMessage } from "@/lib/federation/keytools"
-import { clearTables, generateKeypair, getServerByUrl, seedChallenge, seedServer } from "./helpers/db"
+import { expect, test } from "@playwright/test"
+import createDebug from "debug"
+import { clearTables, generateEnvKeyPair, getServerByUrl, seedChallenge, seedServer } from "./helpers/db"
 
 const debug = createDebug("test:key")
 
@@ -53,8 +53,8 @@ interface InitChallenges {
 
 function solveInitChallenges(
 	challenges: InitChallenges,
-	oldKeys: ReturnType<typeof generateKeypair>,
-	newKeys: ReturnType<typeof generateKeypair>,
+	oldKeys: ReturnType<typeof generateEnvKeyPair>,
+	newKeys: ReturnType<typeof generateEnvKeyPair>,
 ) {
 	const oldSigningSecret = new Uint8Array(Buffer.from(oldKeys.signingSecretKey, "base64"))
 	const newSigningSecret = new Uint8Array(Buffer.from(newKeys.signingSecretKey, "base64"))
@@ -73,7 +73,7 @@ function solveInitChallenges(
 // rotate/init tests
 // ---------------------------------------------------------------------------
 test("init rejects unregistered server", async ({ request }) => {
-	const newKeys = generateKeypair()
+	const newKeys = generateEnvKeyPair()
 	const res = await request.post("/discover/rotate/init", {
 		data: {
 			url: "https://unknown-server.com",
@@ -85,7 +85,7 @@ test("init rejects unregistered server", async ({ request }) => {
 })
 
 test("init rejects same keys as currently registered", async ({ request }) => {
-	const keys = generateKeypair()
+	const keys = generateEnvKeyPair()
 	await seedServer(SERVER_URL, keys.signingPublicKey, keys.encryptionPublicKey)
 	const res = await request.post("/discover/rotate/init", {
 		data: {
@@ -99,8 +99,8 @@ test("init rejects same keys as currently registered", async ({ request }) => {
 })
 
 test("init issues 4 challenges", async ({ request }) => {
-	const oldKeys = generateKeypair()
-	const newKeys = generateKeypair()
+	const oldKeys = generateEnvKeyPair()
+	const newKeys = generateEnvKeyPair()
 	await seedServer(SERVER_URL, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 
 	const res = await request.post("/discover/rotate/init", {
@@ -122,9 +122,9 @@ test("init issues 4 challenges", async ({ request }) => {
 })
 
 test("init rejects duplicate while challenge is pending", async ({ request }) => {
-	const oldKeys = generateKeypair()
-	const newKeys1 = generateKeypair()
-	const newKeys2 = generateKeypair()
+	const oldKeys = generateEnvKeyPair()
+	const newKeys1 = generateEnvKeyPair()
+	const newKeys2 = generateEnvKeyPair()
 	await seedServer(SERVER_URL, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 
 	const res1 = await request.post("/discover/rotate/init", {
@@ -173,8 +173,8 @@ test("confirm rejects expired challenge", async ({ request }) => {
 })
 
 test("confirm rejects wrong proofs (init → confirm)", async ({ request }) => {
-	const oldKeys = generateKeypair()
-	const newKeys = generateKeypair()
+	const oldKeys = generateEnvKeyPair()
+	const newKeys = generateEnvKeyPair()
 	await seedServer(SERVER_URL, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 
 	debug("test: wrong proofs – calling init")
@@ -199,8 +199,8 @@ test("confirm rejects wrong proofs (init → confirm)", async ({ request }) => {
 })
 
 test("confirm blacklists after too many failed attempts", async ({ request }) => {
-	const oldKeys = generateKeypair()
-	const newKeys = generateKeypair()
+	const oldKeys = generateEnvKeyPair()
+	const newKeys = generateEnvKeyPair()
 	await seedServer(SERVER_URL, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 
 	debug("test: blacklists – calling init")
@@ -240,8 +240,8 @@ test("confirm blacklists after too many failed attempts", async ({ request }) =>
 // Full init → confirm happy path
 // ---------------------------------------------------------------------------
 test("full rotation flow: init → solve → confirm rotates both keys", async ({ request }) => {
-	const oldKeys = generateKeypair()
-	const newKeys = generateKeypair()
+	const oldKeys = generateEnvKeyPair()
+	const newKeys = generateEnvKeyPair()
 	await seedServer(SERVER_URL, oldKeys.signingPublicKey, oldKeys.encryptionPublicKey)
 
 	debug("test: full flow – calling init")

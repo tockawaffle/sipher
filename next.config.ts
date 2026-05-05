@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	allowedDevOrigins,
 	output: "standalone",
+	experimental: {
+		webpackMemoryOptimizations: true
+	}
 };
 
 export default nextConfig;

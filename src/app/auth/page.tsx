@@ -110,7 +110,7 @@ function AuthPageContent() {
 				<div className="flex flex-col items-center gap-1">
 					<span className="font-mono text-[10px] text-muted-foreground tracking-[0.25em] uppercase w-full">© 2026 Sipher. All rights reserved.</span>
 					<span className="font-mono text-[10px] text-muted-foreground tracking-[0.25em] uppercase w-full">
-						Refuse to be dominated. Be free. <Link href="" target="_blank" className="text-primary underline">Create your own network.</Link>
+						Refuse to be dominated. Be free. <Link href={process.env.PUBLIC_GIT_URL ?? ""} target="_blank" className="text-primary underline">Create your own network.</Link>
 					</span>
 				</div>
 			</div>
