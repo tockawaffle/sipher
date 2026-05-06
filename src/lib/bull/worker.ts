@@ -3,7 +3,7 @@ import { deliveryJobs } from '@/lib/db/schema';
 import { Worker } from 'bullmq';
 import createDebug from 'debug';
 import { eq } from 'drizzle-orm';
-import { getRedisConnection } from './connection';
+import { getRedisWorkerConnection } from './connection';
 import { processFederationDelivery } from './processors/delivery';
 import { processHealthCheck } from './processors/health-check';
 import { DELIVERY_QUEUE_NAME, HEALTH_CHECK_QUEUE_NAME, type FederationDeliveryJob, type HealthCheckJob } from './queues';
@@ -23,14 +23,13 @@ export function startFederationWorker(): WorkerHandles {
 		return _workers;
 	}
 
-	createDebug.enable(process.env.DEBUG || '');
 	console.log('[federation] Starting workers...');
 
 	const deliveryWorker = new Worker<FederationDeliveryJob>(
 		DELIVERY_QUEUE_NAME,
 		processFederationDelivery,
 		{
-			connection: getRedisConnection() as never,
+			connection: getRedisWorkerConnection() as never,
 			concurrency: 10,
 		},
 	);
@@ -65,7 +64,7 @@ export function startFederationWorker(): WorkerHandles {
 		HEALTH_CHECK_QUEUE_NAME,
 		processHealthCheck,
 		{
-			connection: getRedisConnection() as never,
+			connection: getRedisWorkerConnection() as never,
 			concurrency: 3,
 		},
 	);

@@ -7,7 +7,7 @@ import { markServerHealthy } from '@/lib/federation/registry';
 import { getThreatPolicy } from '@/lib/federation/threat-model';
 import type { Job } from 'bullmq';
 import createDebug from 'debug';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { scheduleHealthCheck, type HealthCheckJob } from '../queues';
 
 const debug = createDebug('app:federation:worker');
@@ -40,7 +40,7 @@ export async function processHealthCheck(job: Job<HealthCheckJob>): Promise<void
 		}
 	}
 
-	debug('health-check: pinging %s (attempt %d/%d)', serverUrl, server.healthCheckAttempts + 1, MAX_HEALTH_CHECK_ATTEMPTS);
+	debug('health-check: pinging %s', serverUrl);
 
 	try {
 		const { response } = await federationFetch(serverUrl + '/discover', {
@@ -60,11 +60,16 @@ export async function processHealthCheck(job: Job<HealthCheckJob>): Promise<void
 		debug('health-check: %s failed: %s', serverUrl, err instanceof FederationError ? err.code : err);
 	}
 
-	const nextAttempt = server.healthCheckAttempts + 1;
-	await db.update(serverRegistry).set({
-		healthCheckAttempts: nextAttempt,
-		updatedAt: new Date(),
-	}).where(eq(serverRegistry.url, serverUrl));
+	// Atomically increment the attempt counter to avoid read-modify-write races.
+	const [updated] = await db.update(serverRegistry)
+		.set({
+			healthCheckAttempts: sql`${serverRegistry.healthCheckAttempts} + 1`,
+			updatedAt: new Date(),
+		})
+		.where(eq(serverRegistry.url, serverUrl))
+		.returning({ healthCheckAttempts: serverRegistry.healthCheckAttempts });
+
+	const nextAttempt = (updated?.healthCheckAttempts ?? server.healthCheckAttempts + 1);
 
 	if (nextAttempt < MAX_HEALTH_CHECK_ATTEMPTS) {
 		await scheduleHealthCheck(serverUrl, nextAttempt);

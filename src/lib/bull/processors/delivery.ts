@@ -3,11 +3,11 @@ import { blacklistedServers, deliveryJobs, serverRegistry } from '@/lib/db/schem
 import { federationFetch } from '@/lib/federation/fetch';
 import { encryptPayload, getOwnSigningSecretKey, signMessage } from '@/lib/federation/keytools';
 import { discoverAndRegister, DiscoveryError } from '@/lib/federation/registry';
-import type { FederationDeliveryJob } from '../queues';
-import { handleFollowAck } from './handlers/follow';
 import { UnrecoverableError, type Job } from 'bullmq';
 import createDebug from 'debug';
 import { eq } from 'drizzle-orm';
+import type { FederationDeliveryJob } from '../queues';
+import { handleFollowAck } from './handlers/follow';
 
 const debug = createDebug('app:federation:worker');
 
@@ -31,6 +31,14 @@ const ackHandlers: Record<string, AckHandler> = {
 	'deliver-follow': handleFollowAck,
 };
 
+function getFederationOrigin(): string {
+	const origin = process.env.BETTER_AUTH_URL;
+	if (!origin) {
+		throw new UnrecoverableError('BETTER_AUTH_URL environment variable is not set, cannot send federation requests');
+	}
+	return origin;
+}
+
 // ---------------------------------------------------------------------------
 // Main processor
 // ---------------------------------------------------------------------------
@@ -40,15 +48,22 @@ export async function processFederationDelivery(job: Job<FederationDeliveryJob>)
 	debug('processing job %s (%s) → %s (attempt %d)', job.id, job.name, targetUrl, job.attemptsMade + 1);
 
 	// 1. Validate method early — before any I/O.
-	let method: string;
+	let parsedPayload: Record<string, unknown>;
 	try {
-		method = JSON.parse(payload).method;
+		parsedPayload = JSON.parse(payload);
 	} catch {
 		await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
 		throw new UnrecoverableError(`Malformed payload JSON, dropping job ${job.id}`);
 	}
 
-	if (!method || !ALLOWED_METHODS.has(method)) {
+	if (typeof parsedPayload?.method !== 'string') {
+		await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
+		throw new UnrecoverableError(`Payload missing or non-string method, dropping job ${job.id}`);
+	}
+
+	const method = parsedPayload.method;
+
+	if (!ALLOWED_METHODS.has(method)) {
 		debug('invalid method: %s, dropping job %s', method, job.id);
 		await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
 		throw new UnrecoverableError(`Invalid method: ${method}, dropping job ${job.id}`);
@@ -111,12 +126,14 @@ export async function processFederationDelivery(job: Job<FederationDeliveryJob>)
 	debug('sending encrypted payload to %s', targetUrl);
 	const signature = signMessage(payload, getOwnSigningSecretKey());
 
+	const origin = getFederationOrigin();
+
 	const { response } = await federationFetch(targetUrl, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			'Origin': process.env.BETTER_AUTH_URL!,
-			'X-Federation-Origin': process.env.BETTER_AUTH_URL!,
+			'Origin': origin,
+			'X-Federation-Origin': origin,
 			'X-Federation-Target': targetUrl,
 		},
 		body: JSON.stringify({ method, payload: encrypted, signature }),
@@ -131,20 +148,33 @@ export async function processFederationDelivery(job: Job<FederationDeliveryJob>)
 	}
 
 	// 6. Parse ack.
-	const responseBody = await response.json();
-	debug('delivery to %s response body: %o', targetUrl, responseBody);
+	let responseBody: unknown;
+	try {
+		responseBody = await response.json();
+	} catch {
+		throw new UnrecoverableError(
+			`Federation delivery to ${targetUrl} returned non-JSON response`,
+		);
+	}
+
+	debug('delivery to %s acknowledged (body length: %d)', targetUrl, JSON.stringify(responseBody).length);
 
 	const ackPayload: AckPayload | null =
-		responseBody.payload?.method === 'PROXY_RESPONSE'
-			? responseBody.payload
-			: responseBody.method === 'PROXY_RESPONSE'
-				? responseBody
-				: null;
+		responseBody && typeof responseBody === 'object' && 'payload' in (responseBody as Record<string, unknown>) && (responseBody as Record<string, unknown>).payload !== null
+			? ((responseBody as Record<string, unknown>).payload as AckPayload | null)
+			: null;
 
 	if (!ackPayload) {
 		debug('delivery to %s not acknowledged', targetUrl);
 		throw new UnrecoverableError(
-			`Federation delivery to ${targetUrl} not acknowledged: ${JSON.stringify(responseBody)}`,
+			`Federation delivery to ${targetUrl} not acknowledged`,
+		);
+	}
+
+	if (ackPayload.method !== 'PROXY_RESPONSE') {
+		debug('delivery to %s not acknowledged', targetUrl);
+		throw new UnrecoverableError(
+			`Federation delivery to ${targetUrl} not acknowledged`,
 		);
 	}
 

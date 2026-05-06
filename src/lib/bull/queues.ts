@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Queue } from 'bullmq';
 import createDebug from 'debug';
 import { getRedisConnection } from './connection';
@@ -63,7 +64,7 @@ export async function scheduleHealthCheck(serverUrl: string, attempt: number): P
 	const delayMs = delayMinutes * 60 * 1000;
 	debug('scheduling health check for %s in %d minutes (attempt %d)', serverUrl, delayMinutes, attempt);
 
-	const safeId = serverUrl.replace(/[^a-zA-Z0-9._-]/g, '_');
+	const safeId = createHash('sha256').update(serverUrl).digest('hex').slice(0, 16);
 	await getHealthCheckQueue().add('health-check', { serverUrl }, {
 		delay: delayMs,
 		jobId: `health-check_${safeId}_${attempt}`,

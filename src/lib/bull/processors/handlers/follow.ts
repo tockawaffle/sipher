@@ -74,7 +74,6 @@ export async function handleFollowAck(
 
 	const followData = decrypted.data.following;
 
-
 	// Verify the row exists locally before applying the remote's accepted flag.
 	const [existing] = await db
 		.select({ id: follows.id })
@@ -98,8 +97,8 @@ export async function handleFollowAck(
 		return;
 	}
 
-	if (!followData?.accepted) {
-		debug('follow %s is not accepted but was acknowledged, setting acknowledged to true', followData.id);
+	if (followData.accepted === false) {
+		debug('follow %s rejected by remote, setting acknowledged', followData.id);
 		await db.update(follows).set({ acknowledged: true }).where(
 			and(
 				eq(follows.followerId, followData.followerId),
@@ -107,20 +106,29 @@ export async function handleFollowAck(
 				eq(follows.followerServerUrl, serverUrl),
 			),
 		);
-		debug('follow %s acknowledged', existing.id);
+		debug('follow %s acknowledged (rejected)', existing.id);
 		return;
 	}
 
-	await db
-		.update(follows)
-		.set({ accepted: followData.accepted })
-		.where(
+	if (followData.accepted === true) {
+		await db.update(follows).set({ accepted: true }).where(
 			and(
 				eq(follows.followerId, followData.followerId),
 				eq(follows.followingId, followData.followingId),
 				eq(follows.followerServerUrl, serverUrl),
 			),
 		);
+		debug('follow %s accepted by remote', followData.id);
+		return;
+	}
 
-	debug('updated follow %s accepted=%s', followData.id, followData.accepted);
+	// Remote acknowledged receipt without accepted state; just mark acknowledged.
+	debug('follow %s acknowledged without accepted state', followData.id);
+	await db.update(follows).set({ acknowledged: true }).where(
+		and(
+			eq(follows.followerId, followData.followerId),
+			eq(follows.followingId, followData.followingId),
+			eq(follows.followerServerUrl, serverUrl),
+		),
+	);
 }
