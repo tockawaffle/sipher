@@ -3,7 +3,7 @@
 > *Silent Whisper — A federated social network built for the modern age.*
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
-![Version](https://img.shields.io/badge/version-0.1.1-purple.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-purple.svg)
 ![Status](https://img.shields.io/badge/status-early%20development-orange.svg)
 
 SiPher is a federated social network. Each server is independent, no central authority, no single point of failure.
@@ -316,17 +316,25 @@ bun test                    # Bun unit tests (keytools, etc.)
 
 Playwright starts the server automatically via `tsx src/server.ts` with `NODE_ENV=test`. The Playwright suites that remain (`tests/proxy/proxy.e2e.ts`, `tests/federation/key-rotation.e2e.ts`) drive their own local DB state and don't need the federation cluster. Anything that exercises real peer-to-peer federation — `/discover` REGISTER/DISCOVER, proxy relay, federated post delivery — lives under `tests/integration/` and runs against the dockerized 3-instance cluster.
 
-### Manual integration tests
+### Docker-based integration tests
 
-Two manual scripts require three live instances with mutual discovery pre-configured:
+Three integration scripts exercise the federation protocol against a real 3-instance Docker cluster (A, B, C) with mutual discovery. All three auto-create their own Better Auth users + identity keys via HTTP — no `--bearer` token needed.
 
 ```sh
-# Requires three running instances (A, B, C) with mutual discovery
-bun run tests/integration/federation-post-delivery.ts --proxy <B_URL> --target <C_URL> --bearer <token>
-bun run tests/integration/proxy-chain.ts --proxy <B_URL> --target <C_URL>
+# Run inside the Docker test cluster (A, B, C must be healthy):
+docker compose -f tests/docker-compose.yml run --rm test-runner \
+  tests/integration/discover.ts --peer http://sipher-c:3002
+
+docker compose -f tests/docker-compose.yml run --rm test-runner \
+  tests/integration/federation-post-delivery.ts \
+  --proxy http://sipher-b:3001 --target http://sipher-c:3002
+
+docker compose -f tests/docker-compose.yml run --rm test-runner \
+  tests/integration/proxy-chain.ts \
+  --proxy http://sipher-b:3001 --target http://sipher-c:3002
 ```
 
-These test the Post → BullMQ delivery → proxy fallback pipeline and the full PROXY/TARGETED relay chain respectively.
+These test the `/discover` REGISTER and DISCOVER handshake with real encrypted envelopes, the Post → BullMQ delivery → proxy fallback pipeline, and the full PROXY/TARGETED relay chain respectively.
 
 ### Test coverage
 
@@ -334,7 +342,7 @@ These test the Post → BullMQ delivery → proxy fallback pipeline and the full
 - **Key rotation e2e** — Full init → solve → confirm flow, rate limiting, expired challenges, exhausted attempts without blacklist-griefing.
 - **Proxy e2e** — PROXY and TARGETED validation, unknown sender rejection, blacklist enforcement, signature verification, duplicate follow rejection, rate limiting, payload size limits.
 - **Keytools unit** — Encryption round-trip, tamper detection, signature verification, deterministic fingerprinting.
-- **Integration (manual)** — Post delivery via proxy fallback, full proxy chain relay.
+- **Integration (docker)** — Post delivery via proxy fallback, full proxy chain relay, discover round-trips.
 
 ---
 
@@ -358,26 +366,30 @@ These test the Post → BullMQ delivery → proxy fallback pipeline and the full
 
 ## What is public/private?
 
-### Public
+### Public (visible to receiving federations)
 
-There are things that won't be e2ee because there's simply no reason for that to be done. This is a small list of the public data that other federations or even users might fetch and get all of the data:
+Post content is encrypted in transit between servers (X25519 key agreement + HKDF + AES-256-GCM), but the receiving federation decrypts and stores the plaintext:
 
-- **Posts**: The whole post object is public, including:
-  - The content, including images, videos, or audios if any
-  - Who posted it
-  - The federation that has that data
-- **Profiles**: Username, display name, public key fingerprint
-- **Follow graph**: Who follows whom (for federation routing)
+- **Posts**: Content (text, images, video, audio, links), authorId, publication date, and the federation of origin.
+- **Profiles**: Username, display name, public key fingerprint.
+- **Follow graph**: Who follows whom (used for federation routing to deliver posts to the right servers).
 
-### Private (server-side)
+### Private (server-side, not federated)
 
-- **Direct messages**: Not yet end-to-end encrypted (stored on server in plaintext).
-- **Mutes/blocks**: Stored server-side, not federated.
+- **Mutes/blocks**: Stored server-side, never sent to other federations.
 - **Passwords**: Hashed by Better Auth, never stored in plaintext.
 
 ### Private (client-side, never sent to server)
 
-- **Ed25519 secret key**: Only exists in browser memory and encrypted IndexedDB.
+- **Ed25519 secret key**: Derived from a BIP-39 mnemonic. Encrypted in IndexedDB (AES-256-GCM with PBKDF2, 600k iterations), decrypted on login and held in module memory + sessionStorage for tab-scoped persistence. Cleared on logout or tab close. Never transmitted to any server.
+- **BIP-39 mnemonic**: Shown to the user once during identity creation, then discarded. The only recovery mechanism.
+
+### Client-side signing
+
+All social actions are signed by the user's Ed25519 identity key before submission:
+
+- **Posts** — The `authorSignature` field contains a detached Ed25519 signature covering the canonical post payload (`postId`, `authorId`, `publishedAt`, `content`, `federationUrl`). Verified server-side before storage.
+- **Follows** — Follow requests and responses carry detached Ed25519 signatures (`requesterSignature`, `responderSignature`) covering a canonical payload that includes `federationUrl` to prevent cross-server replay.
 
 ---
 
@@ -409,7 +421,7 @@ Contributions from people with security or cryptography experience are especiall
 
 ## Mirrors
 
-[Gitea](https://git.tockanest.com/Cete/sipher)
+[Forgejo](https://git.tockanest.com/Cete/sipher)
 
 [GitHub](https://github.com/tockawaffle/sipher)
 
