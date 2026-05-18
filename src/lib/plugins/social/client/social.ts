@@ -1,5 +1,6 @@
+import { canonicalFollowRequestBytes, canonicalFollowResponseBytes } from "@/lib/identity/followSignature";
 import { canonicalPostBytes } from "@/lib/identity/postSignature";
-import { signWithLocalIdentity } from "@/lib/identity/sign";
+import { isKeyUnlocked, sign as sessionSign } from "@/lib/identity/sessionKey";
 import type { BetterAuthClientPlugin } from "better-auth/client";
 import { v4 } from "uuid";
 import { z } from "zod";
@@ -33,21 +34,20 @@ export const sipherSocialClientPlugin = () => {
 				/**
 				 * Author and submit a post.
 				 *
-				 * Each post is detached-Ed25519-signed by the user's mnemonic-derived
-				 * identity key. The matching secret is decrypted in memory only for
-				 * the duration of the signing call (see `signWithLocalIdentity`),
-				 * then zeroed. The server verifies the signature against the user's
-				 * registered `signingPublicKey` before persisting the post.
+				 * Each post is detached-Ed25519-signed via the in-memory session key
+				 * store (populated once at login / identity creation). The server
+				 * verifies the signature against the user's registered
+				 * `signingPublicKey` before persisting the post.
 				 *
-				 * @param content   Content blocks (text/media/link).
-				 * @param userId    Better Auth user id of the author (the same id
-				 *                  used when the identity was created).
-				 * @param password  Master password that unlocks the local identity.
+				 * Throws `"Identity not unlocked"` if `unlockSessionKey` has not been
+				 * called this session (e.g. a fresh tab opened without a login prompt).
+				 *
+				 * @param content  Content blocks (text/media/link).
+				 * @param userId   Better Auth user id of the author.
 				 */
 				createPost: async (
 					content: z.infer<typeof clientPostContentSchmema>,
 					userId: string,
-					password: string,
 				) => {
 					// Allow only these combinations of content:
 					// 1. Text only
@@ -70,12 +70,24 @@ export const sipherSocialClientPlugin = () => {
 					if (videoCount > MAX_VIDEO_COUNT) throw new Error("Maximum number of videos per post exceeded");
 					if (audioCount > MAX_AUDIO_COUNT) throw new Error("Maximum number of audios per post exceeded");
 
-					const resolvedContent: { type: string; value?: string; url?: string; size?: number; index?: number }[] = [];
+					type ResolvedBlock =
+						| { type: "text"; value: string }
+						| { type: "link"; url: string }
+						| { type: "image"; url: string; size: number; index: number }
+						| { type: "video"; url: string; size: number; index: number }
+						| { type: "audio"; url: string; size: number };
+
+					const resolvedContent: ResolvedBlock[] = [];
 					let mediaIndex = 0;
 
 					for (const block of content) {
-						if (block.type === "text" || block.type === "link") {
-							resolvedContent.push({ type: block.type, value: block.value as string });
+						if (block.type === "text") {
+							resolvedContent.push({ type: "text", value: block.value as string });
+							continue;
+						}
+
+						if (block.type === "link") {
+							resolvedContent.push({ type: "link", url: block.value as string });
 							continue;
 						}
 
@@ -108,27 +120,31 @@ export const sipherSocialClientPlugin = () => {
 							throw new Error(`Failed to upload ${file.name}`);
 						}
 
-						resolvedContent.push({
-							type: block.type,
-							url: data.objectUrl,
-							size: file.size,
-							index: mediaIndex++,
-						});
+						if (block.type === "audio") {
+							resolvedContent.push({ type: "audio", url: data.objectUrl, size: file.size });
+						} else {
+							resolvedContent.push({
+								type: block.type as "image" | "video",
+								url: data.objectUrl,
+								size: file.size,
+								index: mediaIndex++,
+							});
+						}
 					}
 
-					const postId = v4()
+					const postId = v4();
 					const publishedAt = new Date().toISOString();
 
-					const signed = await signWithLocalIdentity(
-						userId,
-						password,
-						canonicalPostBytes({ postId, authorId: userId, publishedAt, content: resolvedContent }),
-					);
-					if (!signed) {
-						throw new Error("No local identity found on this device. Create one before posting.");
+					if (!isKeyUnlocked()) {
+						throw new Error("Identity not unlocked. Please enter your master password to unlock signing.");
 					}
 
-					const signature = Buffer.from(signed.signature).toString("base64");
+					const federationUrl = (options as { baseURL?: string } | undefined)?.baseURL
+						?? (typeof window !== "undefined" ? window.location.origin : "");
+					const sigBytes = sessionSign(
+						canonicalPostBytes({ postId, authorId: userId, publishedAt, content: resolvedContent, federationUrl }),
+					);
+					const signature = Buffer.from(sigBytes).toString("base64");
 
 					const { data, error } = await $fetch<{ id: string; federationDeliveriesQueued: number }>(
 						"/social/posts",
@@ -149,10 +165,43 @@ export const sipherSocialClientPlugin = () => {
 
 					return { id: data.id, federationDeliveriesQueued: data.federationDeliveriesQueued };
 				},
-				followUser: async (userId: string, federationUrl?: string) => {
+				/**
+				 * Send a signed follow request to another user.
+				 *
+				 * The requester's Ed25519 identity key (from the session store) signs
+				 * a canonical payload covering `followId`, `followerId`, `followingId`,
+				 * and `createdAt`. The server verifies before persisting.
+				 *
+				 * Throws `"Identity not unlocked"` if the session key store is cold.
+				 *
+				 * @param targetUserId  The user being followed.
+				 * @param currentUserId The authenticated user making the request (used
+				 *                      in the canonical signature payload; must match
+				 *                      the session on the server).
+				 */
+				followUser: async (targetUserId: string, currentUserId: string, federationUrl?: string) => {
+					if (!isKeyUnlocked()) {
+						throw new Error("Identity not unlocked. Please enter your master password to unlock signing.");
+					}
+
+					const followId = v4();
+					const createdAt = new Date().toISOString();
+
+					const ownServerUrl = (options as { baseURL?: string } | undefined)?.baseURL
+						?? (typeof window !== "undefined" ? window.location.origin : "");
+					const sigBytes = sessionSign(
+						canonicalFollowRequestBytes({
+							followId, followerId: currentUserId, followingId: targetUserId, createdAt,
+							federationUrl: ownServerUrl,
+						}),
+					);
+
 					const body: Record<string, string> = {
 						method: "INSERT",
-						userId,
+						userId: targetUserId,
+						followId,
+						createdAt,
+						signature: Buffer.from(sigBytes).toString("base64"),
 					};
 					if (federationUrl) {
 						body.federationUrl = federationUrl;
@@ -174,6 +223,46 @@ export const sipherSocialClientPlugin = () => {
 						throw new Error("Failed to follow user");
 					}
 					return data.following;
+				},
+
+				/**
+				 * Accept or reject a pending follow request.
+				 *
+				 * The responder's Ed25519 identity key signs a canonical payload
+				 * covering `followId`, `response`, and `timestamp`. The server
+				 * verifies and updates the follow row.
+				 *
+				 * Throws `"Identity not unlocked"` if the session key store is cold.
+				 */
+				respondToFollow: async (followId: string, response: "accept" | "reject") => {
+					if (!isKeyUnlocked()) {
+						throw new Error("Identity not unlocked. Please enter your master password to unlock signing.");
+					}
+
+					const timestamp = new Date().toISOString();
+					const ownServerUrl = (options as { baseURL?: string } | undefined)?.baseURL
+						?? (typeof window !== "undefined" ? window.location.origin : "");
+					const sigBytes = sessionSign(
+						canonicalFollowResponseBytes({ followId, response, timestamp, federationUrl: ownServerUrl }),
+					);
+					const signature = Buffer.from(sigBytes).toString("base64");
+
+					const { data, error } = await $fetch<{
+						follow: {
+							id: string;
+							accepted: boolean;
+							followerId: string;
+							followingId: string;
+							responderSignature: string;
+						};
+					}>("/social/follows", {
+						method: "POST",
+						body: { method: "RESPOND", followId, response, timestamp, signature },
+					});
+					if (error || !data) {
+						throw new Error("Failed to respond to follow request");
+					}
+					return data.follow;
 				}
 			}
 		},

@@ -10,7 +10,12 @@ import EmailService from "./mail";
 import minioClient from "./plugins/storage/server/minio.client";
 import getRedisClient from "./redis";
 
-const isTest = process.env.NODE_ENV === "test";
+// `process.env.NODE_ENV` is statically replaced by Next.js at compile time, so
+// it cannot be used to detect the federation test cluster (which is built in
+// dev mode but should behave like a test environment). `SIPHER_TEST_MODE` is a
+// project-owned escape hatch the docker compose env files set explicitly.
+const isTest =
+	process.env.SIPHER_TEST_MODE === "true" || process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
 
 const federationKeysExist =
@@ -28,7 +33,7 @@ if (!federationKeysExist) {
 
 const bAuth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET!,
-	baseURL: process.env.BETTER_AUTH_URL ?? (process.env.NODE_ENV === "test" ? "http://localhost:3000" : undefined),
+	baseURL: process.env.BETTER_AUTH_URL ?? (isTest ? "http://localhost:3000" : undefined),
 	experimental: {
 		joins: true
 	},

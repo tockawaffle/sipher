@@ -2,7 +2,7 @@ import { postContentSchema } from "@/lib/plugins/social/server/helpers/social";
 import { z } from "zod";
 import { createEncryptedEnvelopeSchema } from "../EncryptedEnvelope";
 
-export const PostInnerPayloadSchema = z.object({
+const PostInnerPayloadSchema = z.object({
 	post: z.object({
 		id: z.string(),
 		content: postContentSchema,

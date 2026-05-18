@@ -159,19 +159,20 @@ export async function processFederationDelivery(job: Job<FederationDeliveryJob>)
 
 	debug('delivery to %s acknowledged (body length: %d)', targetUrl, JSON.stringify(responseBody).length);
 
-	const ackPayload: AckPayload | null =
-		responseBody && typeof responseBody === 'object' && 'payload' in (responseBody as Record<string, unknown>) && (responseBody as Record<string, unknown>).payload !== null
-			? ((responseBody as Record<string, unknown>).payload as AckPayload | null)
-			: null;
+	// The ack envelope can arrive in two shapes:
+	//   • Proxy-wrapped (delivered through /proxy):
+	//       { payload: { method: 'PROXY_RESPONSE', data, signature }, ... }
+	//   • Direct (delivered straight to the target endpoint, e.g. /api/auth/...):
+	//       { method: 'PROXY_RESPONSE', data, signature, status: 'acknowledged' }
+	// Accept either — proxy routing is an optimisation, not part of the ack contract.
+	const body = (responseBody ?? {}) as Record<string, unknown>;
+	const wrappedPayload =
+		body.payload !== null && body.payload !== undefined ? (body.payload as AckPayload) : null;
+	const inlinePayload =
+		body.method === 'PROXY_RESPONSE' ? (body as unknown as AckPayload) : null;
+	const ackPayload: AckPayload | null = wrappedPayload ?? inlinePayload;
 
-	if (!ackPayload) {
-		debug('delivery to %s not acknowledged', targetUrl);
-		throw new UnrecoverableError(
-			`Federation delivery to ${targetUrl} not acknowledged`,
-		);
-	}
-
-	if (ackPayload.method !== 'PROXY_RESPONSE') {
+	if (!ackPayload || ackPayload.method !== 'PROXY_RESPONSE') {
 		debug('delivery to %s not acknowledged', targetUrl);
 		throw new UnrecoverableError(
 			`Federation delivery to ${targetUrl} not acknowledged`,

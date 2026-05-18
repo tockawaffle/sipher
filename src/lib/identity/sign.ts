@@ -3,14 +3,16 @@ import { gcm } from "@noble/ciphers/aes.js";
 import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import nacl from "tweetnacl";
+import { getPublicKey, isKeyUnlocked, sign as sessionSign } from "./sessionKey";
 
 /**
  * Plaintext shape inside the AES-GCM-sealed identity blob in Dexie.
- * The mnemonic + secret key combined make this the only thing in the system
- * capable of producing valid signatures for the user's identity.
+ * Contains the keypair needed for signing.
+ * The BIP-39 mnemonic used to derive the keypair is NOT stored here
+ * (shown once during creation, then discarded).
  */
 interface IdentityPlaintext {
-	mnemonic: string;
+	mnemonic?: string;
 	fingerprint: string;
 	publicKey: number[];
 	secretKey: number[];
@@ -39,15 +41,23 @@ export async function decryptIdentity(
 /**
  * Sign one message with the user's Ed25519 identity secret key.
  *
- * Decrypts the keypair, produces a single detached signature, then zeroes the
- * secret bytes from memory before returning. Returns `null` if the user has
- * no identity stored locally on this device.
+ * Fast path: if the session key store has already been unlocked (typical
+ * during an active session), signs without a Dexie read or PBKDF2.
+ *
+ * Cold path: decrypts the keypair from Dexie using `password`, signs, and
+ * zeroes the in-memory secret immediately. Returns `null` if the user has
+ * no identity stored on this device.
  */
-export async function signWithLocalIdentity(
+async function signWithLocalIdentity(
 	userId: string,
 	password: string,
 	message: Uint8Array,
 ): Promise<{ signature: Uint8Array; publicKey: Uint8Array } | null> {
+	if (isKeyUnlocked()) {
+		const publicKey = getPublicKey()!;
+		return { signature: sessionSign(message), publicKey };
+	}
+
 	const record = await getDb().identity.get(userId);
 	if (!record) return null;
 

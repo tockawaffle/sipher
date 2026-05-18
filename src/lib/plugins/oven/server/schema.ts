@@ -57,7 +57,7 @@ export const KeysUploadBodySchema = z
 		{ message: "At least one of device_keys, one_time_keys, or fallback_keys must be present" },
 	);
 
-export type KeysUploadBody = z.infer<typeof KeysUploadBodySchema>;
+type KeysUploadBody = z.infer<typeof KeysUploadBodySchema>;
 
 /**
  * Body for `POST /oven/identity/register`.
@@ -76,4 +76,4 @@ export const IdentityRegisterBodySchema = z.object({
 	fingerprint: z.string().min(1),
 });
 
-export type IdentityRegisterBody = z.infer<typeof IdentityRegisterBodySchema>;
+type IdentityRegisterBody = z.infer<typeof IdentityRegisterBodySchema>;

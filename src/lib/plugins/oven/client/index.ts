@@ -1,4 +1,6 @@
 import { getDb } from "@/lib/dexie";
+import { binary_to_base58 } from "@/lib/federation/keytools";
+import { unlockSessionKey } from "@/lib/identity/sessionKey";
 import { decryptIdentity } from "@/lib/identity/sign";
 import type { KeysUploadRequest } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { gcm } from "@noble/ciphers/aes.js";
@@ -8,7 +10,6 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "@noble/hashes/utils.js";
 import * as bip39 from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { binary_to_base58 } from "base58-js";
 import type { BetterAuthClientPlugin } from "better-auth/client";
 import nacl from "tweetnacl";
 import type { sipherOven } from "../server";
@@ -66,7 +67,6 @@ export const sipherOvenClientPlugin = () => {
 					const iv = randomBytes(12);
 					const aesKey = await pbkdf2Async(sha256, password, salt, { c: 600_000, dkLen: 32 });
 					const plaintext = new TextEncoder().encode(JSON.stringify({
-						mnemonic,
 						fingerprint,
 						publicKey: Array.from(publicKey),
 						secretKey: Array.from(secretKey),
@@ -83,7 +83,7 @@ export const sipherOvenClientPlugin = () => {
 
 					const { error: registerError } = await $fetch<{ success: boolean }>("/oven/identity/register", {
 						method: "POST",
-						body: { signingPublicKey: binary_to_base58(publicKey), fingerprint },
+						body: { signingPublicKey: publicKey, fingerprint },
 					});
 					if (registerError) {
 						console.error("[createOvenIdentity]", registerError);
@@ -119,6 +119,10 @@ export const sipherOvenClientPlugin = () => {
 						}
 					}
 
+					// Auto-unlock the session key store so the user's first post/follow
+					// doesn't require a re-prompt immediately after creation.
+					await unlockSessionKey(username, password);
+
 					return { userId, deviceId, machine, fingerprint, publicKey, mnemonic };
 				},
 
@@ -134,7 +138,7 @@ export const sipherOvenClientPlugin = () => {
 					const parsed = await decryptIdentity(record, password);
 
 					return {
-						mnemonic: parsed.mnemonic,
+						mnemonic: parsed.mnemonic ?? null,
 						fingerprint: parsed.fingerprint,
 						publicKey: new Uint8Array(parsed.publicKey),
 					};

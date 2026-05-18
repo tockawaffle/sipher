@@ -138,6 +138,11 @@ export const sipherOven = () => {
 				const { signingPublicKey, fingerprint } = context.body;
 				const now = new Date();
 
+				const checkIdentity = await db.select().from(userIdentityKeys).where(eq(userIdentityKeys.userId, session.user.id)).limit(1);
+				if (checkIdentity.length > 0) {
+					return context.json({ error: "Identity already registered, if you need to rotate your keys, please use the key rotation flow instead." }, { status: 400 });
+				}
+
 				await db.transaction(async (tx) => {
 					const updated = await tx
 						.update(userIdentityKeys)

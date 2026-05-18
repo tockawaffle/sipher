@@ -1,13 +1,15 @@
 import { getFederationQueue } from "@/lib/bull";
 import db from "@/lib/db";
-import { blacklistedServers, deliveryJobs, follows, serverRegistry, user } from "@/lib/db/schema";
-import { verifySignature } from "@/lib/federation/keytools";
+import { blacklistedServers, blocks, deliveryJobs, follows, serverRegistry, user, userIdentityKeys } from "@/lib/db/schema";
+import { base58_to_binary, verifySignature } from "@/lib/federation/keytools";
 import { peerRegistryUrlOrNull } from "@/lib/federation/peer-registry-url";
 import { discoverAndRegister, DiscoveryError } from "@/lib/federation/registry";
+import { canonicalFollowRequestBytes, canonicalFollowResponseBytes } from "@/lib/identity/followSignature";
 import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
+import nacl from "tweetnacl";
 import { z } from "zod";
 
 const debug = createDebug("app:plugins:server:helpers:social:follows");
@@ -17,6 +19,9 @@ const followSchema = z.discriminatedUnion(
 	z.object({
 		method: z.literal("INSERT"),
 		userId: z.string(),
+		followId: z.string().uuid(),
+		createdAt: z.string().datetime(),
+		signature: z.string().min(1),
 		federationUrl: z.url().optional(),
 	}),
 	z.object({
@@ -27,6 +32,13 @@ const followSchema = z.discriminatedUnion(
 	z.object({
 		method: z.literal("UNFOLLOW"),
 		userId: z.string(),
+	}),
+	z.object({
+		method: z.literal("RESPOND"),
+		followId: z.string().uuid(),
+		response: z.enum(["accept", "reject"]),
+		timestamp: z.string().datetime(),
+		signature: z.string().min(1),
 	}),
 ], { error: "Invalid follow method" },
 )
@@ -44,7 +56,36 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				return context.json({ error: "Unauthorized" }, { status: 401 });
 			};
 
-			const { userId, federationUrl } = context.body;
+			const { userId, federationUrl, followId, createdAt, signature } = context.body;
+
+			// Verify the requester's Ed25519 signature against their registered key.
+			const [identity] = await db
+				.select({ signingPublicKey: userIdentityKeys.signingPublicKey })
+				.from(userIdentityKeys)
+				.where(eq(userIdentityKeys.userId, session.user.id))
+				.limit(1);
+
+			if (!identity) {
+				return context.json({ error: "Requester has no registered identity key." }, { status: 403 });
+			}
+
+			let sigValid = false;
+			try {
+				const publicKey = base58_to_binary(identity.signingPublicKey);
+				const sigBytes = Uint8Array.from(Buffer.from(signature, "base64"));
+				const msg = canonicalFollowRequestBytes({
+					followId, followerId: session.user.id, followingId: userId, createdAt,
+					federationUrl: process.env.BETTER_AUTH_URL!,
+				});
+				sigValid = nacl.sign.detached.verify(msg, sigBytes, publicKey);
+			} catch (err) {
+				debug("follow INSERT signature verification threw: %o", err);
+			}
+
+			if (!sigValid) {
+				return context.json({ error: "Invalid follow request signature." }, { status: 403 });
+			}
+
 			const ownUrl = process.env.BETTER_AUTH_URL!;
 			const isLocal = !federationUrl || federationUrl === ownUrl;
 
@@ -72,12 +113,27 @@ export const followUser = createAuthEndpoint("/social/follows", {
 					return context.json({ error: "User not found." }, { status: 404 });
 				}
 
+				// Reject if the target user has blocked the requester.
+				const [existingBlock] = await db
+					.select({ id: blocks.id })
+					.from(blocks)
+					.where(and(
+						eq(blocks.blockerId, userId),
+						eq(blocks.blockedUserId, session.user.id),
+					))
+					.limit(1);
+
+				if (existingBlock) {
+					return context.json({ error: "Unable to follow this user." }, { status: 403 });
+				}
+
 				const following = await db.insert(follows).values({
-					id: crypto.randomUUID(),
+					id: followId,
 					followerId: session.user.id,
 					followingId: userId,
 					accepted: !targetUser.isPrivate,
-					createdAt: new Date(),
+					createdAt: new Date(createdAt),
+					requesterSignature: signature,
 				}).returning();
 
 				return context.json({ following }, { status: 200 });
@@ -115,12 +171,13 @@ export const followUser = createAuthEndpoint("/social/follows", {
 			}
 
 			const following = await db.insert(follows).values({
-				id: crypto.randomUUID(),
+				id: followId,
 				followerId: session.user.id,
 				followingId: userId,
 				accepted: false,
-				createdAt: new Date(),
+				createdAt: new Date(createdAt),
 				followerServerUrl: peerRegistryUrlOrNull(serverUrl),
+				requesterSignature: signature,
 			}).returning();
 
 			const job = await db.insert(deliveryJobs).values({
@@ -139,6 +196,73 @@ export const followUser = createAuthEndpoint("/social/follows", {
 			});
 
 			return context.json({ following }, { status: 200 });
+		}
+		case "RESPOND": {
+			const session = await getSessionFromCtx(context);
+			if (!session) {
+				return context.json({ error: "Unauthorized" }, { status: 401 });
+			}
+
+			const { followId, response, timestamp, signature } = context.body;
+
+			// The responder must own the followingId on this follow row.
+			const [follow] = await db
+				.select({
+					id: follows.id,
+					followerId: follows.followerId,
+					followingId: follows.followingId,
+					responderSignature: follows.responderSignature,
+				})
+				.from(follows)
+				.where(eq(follows.id, followId))
+				.limit(1);
+
+			if (!follow) {
+				return context.json({ error: "Follow request not found." }, { status: 404 });
+			}
+
+			if (follow.followingId !== session.user.id) {
+				return context.json({ error: "Only the target user can respond to this follow request." }, { status: 403 });
+			}
+
+			if (follow.responderSignature) {
+				return context.json({ error: "This follow request has already been responded to." }, { status: 409 });
+			}
+
+			// Verify the responder's signature.
+			const [identity] = await db
+				.select({ signingPublicKey: userIdentityKeys.signingPublicKey })
+				.from(userIdentityKeys)
+				.where(eq(userIdentityKeys.userId, session.user.id))
+				.limit(1);
+
+			if (!identity) {
+				return context.json({ error: "Responder has no registered identity key." }, { status: 403 });
+			}
+
+			let sigValid = false;
+			try {
+				const publicKey = base58_to_binary(identity.signingPublicKey);
+				const sigBytes = Uint8Array.from(Buffer.from(signature, "base64"));
+				const msg = canonicalFollowResponseBytes({ followId, response, timestamp, federationUrl: process.env.BETTER_AUTH_URL! });
+				sigValid = nacl.sign.detached.verify(msg, sigBytes, publicKey);
+			} catch (err) {
+				debug("follow RESPOND signature verification threw: %o", err);
+			}
+
+			if (!sigValid) {
+				return context.json({ error: "Invalid follow response signature." }, { status: 403 });
+			}
+
+			const accepted = response === "accept";
+
+			const [updated] = await db
+				.update(follows)
+				.set({ accepted, responderSignature: signature })
+				.where(eq(follows.id, followId))
+				.returning();
+
+			return context.json({ follow: updated }, { status: 200 });
 		}
 		case "FEDERATE": {
 			const { payload, signature } = context.body;
@@ -183,6 +307,20 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				}, { status: 404 });
 			}
 
+			// Reject if the local target user has blocked the remote follower.
+			const [federatedBlock] = await db
+				.select({ id: blocks.id })
+				.from(blocks)
+				.where(and(
+					eq(blocks.blockerId, following.followingId),
+					eq(blocks.blockedUserId, following.followerId),
+				))
+				.limit(1);
+
+			if (federatedBlock) {
+				return context.json({ error: "Unable to follow this user." }, { status: 403 });
+			}
+
 			const accepted = !targetUser.isPrivate;
 
 			await db.insert(follows).values({
@@ -192,7 +330,7 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				accepted,
 				createdAt: new Date(),
 				followingServerUrl: peerRegistryUrlOrNull(server.url),
-			});
+			}).onConflictDoNothing();
 
 			return context.json({ status: "acknowledged", accepted }, { status: 200 });
 		}

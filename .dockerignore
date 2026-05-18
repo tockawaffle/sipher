@@ -1,0 +1,23 @@
+# Deps and build output — reinstalled inside the image
+node_modules
+.next
+out
+build
+
+# Local environment — secrets must come from Docker Compose, not the image
+.env.local
+.env
+
+# Tests and tooling output — not needed at runtime
+test-results
+playwright-report
+blob-report
+coverage
+
+# Version control
+.git
+.gitignore
+
+# Editor artefacts
+.DS_Store
+*.pem

@@ -3,6 +3,7 @@ import { serverRegistry } from '@/lib/db/schema';
 import { encryptPayload, getOwnSigningSecretKey, signMessage } from '@/lib/federation/keytools';
 import { markServerHealthy, markServerUnhealthy } from '@/lib/federation/registry';
 import { EMERGENCY_SWEEP_TIMEOUT, getThreatPolicy } from '@/lib/federation/threat-model';
+import { assertSafeUrl, UrlGuardError } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
 import { and, desc, eq, ne } from 'drizzle-orm';
 
@@ -161,6 +162,15 @@ async function emergencySweep(excludeUrl: string): Promise<typeof serverRegistry
 
 	const results = await Promise.allSettled(
 		checkable.map(async (server) => {
+			try {
+				assertSafeUrl(server.url);
+			} catch (err) {
+				if (err instanceof UrlGuardError) {
+					debug('emergency sweep: skipping %s — blocked URL: %s', server.url, err.message);
+					throw err;
+				}
+				throw err;
+			}
 			const res = await fetch(server.url + '/discover', {
 				signal: AbortSignal.timeout(EMERGENCY_SWEEP_TIMEOUT),
 			});

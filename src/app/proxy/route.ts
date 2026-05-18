@@ -1,10 +1,11 @@
 import db from "@/lib/db";
-import { blacklistedServers, follows, serverRegistry, user } from "@/lib/db/schema";
+import { blacklistedServers, blocks, follows, serverRegistry, user } from "@/lib/db/schema";
 import { FederationError, federationFetch } from "@/lib/federation/fetch";
 import { decryptPayload, encryptPayload, getOwnEncryptionSecretKey, getOwnSigningSecretKey, signMessage, verifySignature } from "@/lib/federation/keytools";
 import { peerRegistryUrlOrNull } from "@/lib/federation/peer-registry-url";
 import { applyFederatedPostInTransaction } from "@/lib/federation/proxy-helpers/federated-post";
 import { discoverAndRegister } from "@/lib/federation/registry";
+import { checkRateLimit } from "@/lib/rate-limit/rate-limit";
 import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
 import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
 import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
@@ -71,14 +72,42 @@ type UserActions = "FEDERATE_FOLLOW" | "FEDERATE_UNFOLLOW" | "GET_USER_PROFILE" 
 
 type Actions = PostsActions | UserActions;
 
+const PROXY_MAX_BODY_BYTES = 256 * 1024; // 256 KB
+
 export async function POST(request: NextRequest) {
+	const contentLength = request.headers.get("content-length");
+	if (contentLength && parseInt(contentLength, 10) > PROXY_MAX_BODY_BYTES) {
+		debug("POST /proxy – request body too large (%s bytes)", contentLength);
+		return NextResponse.json({ error: "Request body too large", code: "PAYLOAD_TOO_LARGE" }, { status: 413 });
+	}
+
 	const getFedUrl = request.headers.get("x-federation-origin");
 	if (!getFedUrl) {
 		debug("Missing x-federation-origin header from %s", request.url);
 		return NextResponse.json({ error: "Missing x-federation-origin header", code: "MISSING_FED_ORIGIN_HEADER" }, { status: 400 });
 	}
 
-	const data = await request.clone().json();
+	const proxyRateLimit = await checkRateLimit(`proxy:${getFedUrl}`, { limit: 100, windowSeconds: 60 });
+	if (!proxyRateLimit.allowed) {
+		debug("POST /proxy – rate limited origin %s", getFedUrl);
+		return NextResponse.json(
+			{ error: "Too many proxy requests. Please try again later.", code: "RATE_LIMITED" },
+			{ status: 429, headers: { "Retry-After": String(proxyRateLimit.retryAfter) } },
+		);
+	}
+
+	const rawBody = await request.text();
+	if (rawBody.length > PROXY_MAX_BODY_BYTES) {
+		debug("POST /proxy – request body too large (%d bytes)", rawBody.length);
+		return NextResponse.json({ error: "Request body too large", code: "PAYLOAD_TOO_LARGE" }, { status: 413 });
+	}
+
+	let data: unknown;
+	try {
+		data = JSON.parse(rawBody);
+	} catch {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_PROXY_DATA" }, { status: 400 });
+	}
 	const parsed = ProxiedDataSchema.safeParse(data);
 	if (!parsed.success) {
 		debug("POST /proxy – error parsing proxied data from %s: %s", request.url, parsed.error.message);
@@ -87,334 +116,380 @@ export async function POST(request: NextRequest) {
 
 	switch (parsed.data.method) {
 		case "PROXY": {
+
+			if (!parsed.data.publicSigningKey || !parsed.data.publicEncryptionKey) {
+				debug("POST /proxy – error parsing proxied data from %s: %s", request.url, "Missing public signing or encryption key");
+				return NextResponse.json({ error: "Invalid proxied data", code: "INVALID_PROXY_DATA" }, { status: 400 });
+			}
+
+			const proxiedData = parsed.data;
+
+			// Verify Federation A (sender) is known and keys match
+			const [sender] = await db.select().from(serverRegistry).where(eq(serverRegistry.url, getFedUrl));
+
+			if (!sender) {
+				debug("POST /proxy – sender not found in registry: %s", getFedUrl);
+				return NextResponse.json({
+					error: "Unknown federation server. Please redo the discovery process and try again.",
+					code: "UNKNOWN_FEDERATION_SERVER_INTERACTION",
+				}, { status: 403 });
+			} else if (sender.publicKey !== proxiedData.publicSigningKey) {
+				debug("POST /proxy – sender signing key mismatch: %s", getFedUrl);
+				return NextResponse.json({
+					error: "The provided keys are a mismatch. If you rotated your keys, we are not aware of it.",
+					code: "INCORRECT_KEYS",
+				}, { status: 403 });
+			} else if (sender.encryptionPublicKey !== proxiedData.publicEncryptionKey) {
+				debug("POST /proxy – sender encryption key mismatch: %s", getFedUrl);
+				return NextResponse.json({
+					error: "The provided keys are a mismatch. If you rotated your keys, we are not aware of it.",
+					code: "INCORRECT_KEYS",
+				}, { status: 403 });
+			}
+
+			// Verify Federation B (target) is known to us (prevents open-relay abuse)
+			const targetBaseUrl = new URL(proxiedData.targetUrl.toString()).origin;
+			const [target] = await db.select().from(serverRegistry).where(eq(serverRegistry.url, targetBaseUrl));
+
+			if (!target) {
+				debug("POST /proxy – target not found in registry: %s", targetBaseUrl);
+				debug("POST /proxy - Starting discovery process")
+				await discoverAndRegister(targetBaseUrl);
+			}
+
+			// Proxy the request to Federation B as a TARGETED request (no proxy fallback — we ARE the proxy)
+			let forwardResponse: Response;
 			try {
-
-				if (!parsed.data.publicSigningKey || !parsed.data.publicEncryptionKey) {
-					debug("POST /proxy – error parsing proxied data from %s: %s", request.url, "Missing public signing or encryption key");
-					return NextResponse.json({ error: "Invalid proxied data", code: "INVALID_PROXY_DATA" }, { status: 400 });
+				const result = await federationFetch(proxiedData.targetUrl.toString(), {
+					method: "POST",
+					body: JSON.stringify({
+						method: "TARGETED" as PROXY_METHOD,
+						payload: proxiedData.payload,
+					}),
+					headers: {
+						"Content-Type": "application/json",
+						"X-Federation-Origin": process.env.BETTER_AUTH_URL!,
+						"Origin": process.env.BETTER_AUTH_URL!,
+						"X-Federation-Sender": getFedUrl,
+					},
+					serverUrl: targetBaseUrl,
+					proxyFallback: false,
+					skipHealthUpdate: true,
+				});
+				forwardResponse = result.response;
+			} catch (err) {
+				if (err instanceof FederationError) {
+					debug("POST /proxy – federation error proxying to %s: %s", proxiedData.targetUrl.toString(), err.code);
+					return NextResponse.json({ error: "Failed to proxy request", code: "FAILED_TO_PROXY_REQUEST", federationError: err.code, method: "PROXY_RESPONSE" as PROXY_METHOD }, { status: 502 });
 				}
+				throw err;
+			}
 
-				const proxiedData = parsed.data;
+			if (!forwardResponse.ok) {
+				debug("POST /proxy – error proxying request to %s: %s", proxiedData.targetUrl.toString(), forwardResponse.statusText);
+				let details: unknown;
+				try {
+					details = await forwardResponse.json();
+				} catch {
+					try {
+						details = await forwardResponse.text();
+					} catch {
+						details = undefined;
+					}
+				}
+				return NextResponse.json({ error: "Failed to proxy request", code: "FAILED_TO_PROXY_REQUEST", details, method: "PROXY_RESPONSE" as PROXY_METHOD }, { status: 502 });
+			}
 
-				// Verify Federation A (sender) is known and keys match
-				const [sender] = await db.select().from(serverRegistry).where(eq(serverRegistry.url, getFedUrl));
+			let responseBody: unknown;
+			try {
+				responseBody = await forwardResponse.json();
+			} catch (err) {
+				debug("POST /proxy – invalid JSON from target %s: %o", proxiedData.targetUrl.toString(), err);
+				return NextResponse.json({ error: "Failed to proxy request", code: "FAILED_TO_PROXY_REQUEST", details: "Target returned non-JSON body", method: "PROXY_RESPONSE" as PROXY_METHOD }, { status: 502 });
+			}
 
-				if (!sender) {
-					debug("POST /proxy – sender not found in registry: %s", getFedUrl);
+			// Return the response from Federation B as a PROXY_RESPONSE
+			return NextResponse.json({
+				method: "PROXY_RESPONSE" as PROXY_METHOD,
+				payload: responseBody,
+			});
+
+		}
+		case "TARGETED": {
+
+			if (!parsed.data.payload) {
+				debug("POST /proxy – error parsing targeted data from %s: %s", request.url, "Missing payload");
+				return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_TARGETED_DATA" }, { status: 400 });
+			}
+
+			let decryptedPayload: string;
+			try {
+				decryptedPayload = decryptPayload(parsed.data.payload, getOwnEncryptionSecretKey());
+			} catch (decryptErr) {
+				debug("POST /proxy – targeted envelope decrypt failed from %s: %o", request.url, decryptErr);
+				return NextResponse.json({
+					error: "Cannot decrypt targeted payload for this server.",
+					code: "DECRYPT_FAILED",
+				}, { status: 400 });
+			}
+
+			let parsedPayload: unknown;
+			try {
+				parsedPayload = JSON.parse(decryptedPayload);
+			} catch {
+				return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_TARGETED_DATA" }, { status: 400 });
+			}
+
+			debug("POST /proxy – parsed targeted data from %s: %o", request.url, parsedPayload);
+
+			// PING: lightweight connectivity / crypto-routing check.
+			// Still enforces the sender trust model — the sender must be registered.
+			if (
+				typeof parsedPayload === "object" &&
+				parsedPayload !== null &&
+				(parsedPayload as { method?: string }).method === "PING"
+			) {
+				const [pingSender] = await db.select({ url: serverRegistry.url })
+					.from(serverRegistry)
+					.where(eq(serverRegistry.url, getFedUrl))
+					.limit(1);
+				if (!pingSender) {
+					debug("POST /proxy – PING from unregistered sender: %s", getFedUrl);
 					return NextResponse.json({
 						error: "Unknown federation server. Please redo the discovery process and try again.",
 						code: "UNKNOWN_FEDERATION_SERVER_INTERACTION",
 					}, { status: 403 });
-				} else if (sender.publicKey !== proxiedData.publicSigningKey) {
-					debug("POST /proxy – sender signing key mismatch: %s", getFedUrl);
-					return NextResponse.json({
-						error: "The provided keys are a mismatch. If you rotated your keys, we are not aware of it.",
-						code: "INCORRECT_KEYS",
-					}, { status: 403 });
-				} else if (sender.encryptionPublicKey !== proxiedData.publicEncryptionKey) {
-					debug("POST /proxy – sender encryption key mismatch: %s", getFedUrl);
-					return NextResponse.json({
-						error: "The provided keys are a mismatch. If you rotated your keys, we are not aware of it.",
-						code: "INCORRECT_KEYS",
-					}, { status: 403 });
 				}
-
-				// Verify Federation B (target) is known to us (prevents open-relay abuse)
-				const targetBaseUrl = new URL(proxiedData.targetUrl.toString()).origin;
-				const [target] = await db.select().from(serverRegistry).where(eq(serverRegistry.url, targetBaseUrl));
-
-				if (!target) {
-					debug("POST /proxy – target not found in registry: %s", targetBaseUrl);
-					debug("POST /proxy - Starting discovery process")
-					await discoverAndRegister(targetBaseUrl);
-				}
-
-				// Proxy the request to Federation B as a TARGETED request (no proxy fallback — we ARE the proxy)
-				let forwardResponse: Response;
-				try {
-					const result = await federationFetch(proxiedData.targetUrl.toString(), {
-						method: "POST",
-						body: JSON.stringify({
-							method: "TARGETED" as PROXY_METHOD,
-							payload: proxiedData.payload,
-						}),
-						headers: {
-							"Content-Type": "application/json",
-							"X-Federation-Origin": process.env.BETTER_AUTH_URL!,
-							"Origin": process.env.BETTER_AUTH_URL!,
-							"X-Federation-Sender": getFedUrl,
-						},
-						serverUrl: targetBaseUrl,
-						proxyFallback: false,
-						skipHealthUpdate: true,
-					});
-					forwardResponse = result.response;
-				} catch (err) {
-					if (err instanceof FederationError) {
-						debug("POST /proxy – federation error proxying to %s: %s", proxiedData.targetUrl.toString(), err.code);
-						return NextResponse.json({ error: "Failed to proxy request", code: "FAILED_TO_PROXY_REQUEST", federationError: err.code, method: "PROXY_RESPONSE" as PROXY_METHOD }, { status: 502 });
-					}
-					throw err;
-				}
-
-				if (!forwardResponse.ok) {
-					debug("POST /proxy – error proxying request to %s: %s", proxiedData.targetUrl.toString(), forwardResponse.statusText);
-					return NextResponse.json({ error: "Failed to proxy request", code: "FAILED_TO_PROXY_REQUEST", details: await forwardResponse.json(), method: "PROXY_RESPONSE" as PROXY_METHOD }, { status: 502 });
-				}
-
-				const responseBody = await forwardResponse.json();
-
-				// Return the response from Federation B as a PROXY_RESPONSE
-				return NextResponse.json({
-					method: "PROXY_RESPONSE" as PROXY_METHOD,
-					payload: responseBody,
-				});
-
-			} catch (error) {
-				debug("POST /proxy – error parsing proxied data from %s: %s", request.url, error);
-				return NextResponse.json({ error: "Invalid proxied data", code: "INVALID_PROXY_DATA" }, { status: 400 });
+				const nonce = (parsedPayload as { nonce?: string }).nonce;
+				return NextResponse.json({ method: "PROXY_RESPONSE" as PROXY_METHOD, status: "pong", nonce }, { status: 200 });
 			}
-		}
-		case "TARGETED": {
-			try {
-				// 🚨 we've been targeted, the 🧃 are coming, everyone to the bunkers! 🚨
 
-				// We need to use the EncryptedEnvelopeBaseSchema here because we do not know what we are being targeted for
-				// This is the information we'll have at the end of the day:
-				// - The requester's url
-				// - The requester's public signing key
-				// - The requester's public encryption key
-				// - The request data, being the method, path, and payload
-
-				if (!parsed.data.payload) {
-					debug("POST /proxy – error parsing targeted data from %s: %s", request.url, "Missing payload");
-					return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_TARGETED_DATA" }, { status: 400 });
-				}
-
-				const decryptedPayload = decryptPayload(parsed.data.payload, getOwnEncryptionSecretKey());
-				const parsedPayload = JSON.parse(decryptedPayload);
-
-				debug("POST /proxy – parsed targeted data from %s: %o", request.url, parsedPayload);
-
-				const payloadSchema = z.object({
-					targetUrl: z.url(),
-					method: z.string(),
-					headers: z.record(z.string(), z.string()),
-					body: z.string().transform((body) => {
-						const parsedBody = JSON.parse(body);
-						return {
-							method: parsedBody.method,
-							payload: parsedBody.payload,
-							signature: parsedBody.signature,
-						};
-					})
-				}).superRefine((data, ctx) => {
-					try {
-						const originPayloadHeaders = data.headers;
-						debug("POST /proxy – origin payload headers: %o", originPayloadHeaders);
-						if (!originPayloadHeaders["X-Federation-Target"] || !originPayloadHeaders["X-Federation-Origin"] || !originPayloadHeaders["Origin"]) {
-							ctx.addIssue({ code: "custom", message: "Missing headers" });
-							return z.NEVER;
-						}
-
-						// Should be the base URL of the target URL
-						const targetUrl = new URL(data.targetUrl).origin;
-						const federationTargetOriginHeader = new URL(originPayloadHeaders["X-Federation-Target"]).origin;
-						debug("POST /proxy – target URL: %s", targetUrl);
-						debug("POST /proxy – x-federation-target header: %s", federationTargetOriginHeader);
-						if (federationTargetOriginHeader !== targetUrl) {
-							ctx.addIssue({ code: "custom", message: "x-federation-target header mismatch" });
-							return z.NEVER;
-						}
-					} catch (error) {
-						ctx.addIssue({ code: "custom", message: "Decryption failed" });
+			const payloadSchema = z.object({
+				targetUrl: z.url(),
+				method: z.string(),
+				headers: z.record(z.string(), z.string()),
+				body: z.string().transform((body) => {
+					const parsedBody = JSON.parse(body);
+					return {
+						method: parsedBody.method,
+						payload: parsedBody.payload,
+						signature: parsedBody.signature,
+					};
+				})
+			}).superRefine((data, ctx) => {
+				try {
+					const originPayloadHeaders = data.headers;
+					debug("POST /proxy – origin payload headers: %o", originPayloadHeaders);
+					if (!originPayloadHeaders["X-Federation-Target"] || !originPayloadHeaders["X-Federation-Origin"] || !originPayloadHeaders["Origin"]) {
+						ctx.addIssue({ code: "custom", message: "Missing headers" });
 						return z.NEVER;
 					}
-				});
 
-				const validated = payloadSchema.safeParse(parsedPayload);
-				if (!validated.success) {
-					debug("POST /proxy – error validating targeted data from %s: %s", request.url, validated.error.message);
-					return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_TARGETED_DATA" }, { status: 400 });
+					// Should be the base URL of the target URL
+					const targetUrl = new URL(data.targetUrl).origin;
+					const federationTargetOriginHeader = new URL(originPayloadHeaders["X-Federation-Target"]).origin;
+					debug("POST /proxy – target URL: %s", targetUrl);
+					debug("POST /proxy – x-federation-target header: %s", federationTargetOriginHeader);
+					if (federationTargetOriginHeader !== targetUrl) {
+						ctx.addIssue({ code: "custom", message: "x-federation-target header mismatch" });
+						return z.NEVER;
+					}
+				} catch (error) {
+					ctx.addIssue({ code: "custom", message: "Decryption failed" });
+					return z.NEVER;
+				}
+			});
+
+			const validated = payloadSchema.safeParse(parsedPayload);
+			if (!validated.success) {
+				debug("POST /proxy – error validating targeted data from %s: %s", request.url, validated.error.message);
+				return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_TARGETED_DATA" }, { status: 400 });
+			}
+
+			const { targetUrl, method, headers, body } = validated.data;
+
+			// Check if the sender is known, keys match and is not blackisted
+			const result = await db.transaction(async (tx) => {
+
+				const senderUrl = headers["X-Federation-Origin"];
+				// Check if the sender is blacklisted
+				const [blacklisted] = await tx.select().from(blacklistedServers).where(eq(blacklistedServers.serverUrl, senderUrl));
+				if (blacklisted) {
+					debug("POST /proxy – sender is blacklisted: %s", senderUrl);
+					return { error: "The federation server was blacklisted from interacting with this federation server. Please contact support to unblacklist your server.", code: "BLACKLISTED_FEDERATION_SERVER", action: undefined, status: 403 };
 				}
 
-				const { targetUrl, method, headers, body } = validated.data;
+				// Check if the sender is known
+				const [sender] = await tx.select().from(serverRegistry).where(eq(serverRegistry.url, senderUrl));
+				if (!sender) {
+					debug("POST /proxy – sender not found in registry: %s", senderUrl);
+					return { error: "Unknown federation server. Please redo the discovery process and try again.", code: "UNKNOWN_FEDERATION_SERVER_INTERACTION", action: undefined, status: 403 };
+				}
 
-				// Check if the sender is known, keys match and is not blackisted
-				const result = await db.transaction(async (tx) => {
-
-					const senderUrl = headers["X-Federation-Origin"];
-					// Check if the sender is blacklisted
-					const [blacklisted] = await tx.select().from(blacklistedServers).where(eq(blacklistedServers.serverUrl, senderUrl));
-					if (blacklisted) {
-						debug("POST /proxy – sender is blacklisted: %s", senderUrl);
-						return { error: "The federation server was blacklisted from interacting with this federation server. Please contact support to unblacklist your server.", code: "BLACKLISTED_FEDERATION_SERVER", action: undefined, status: 403 };
-					}
-
-					// Check if the sender is known
-					const [sender] = await tx.select().from(serverRegistry).where(eq(serverRegistry.url, senderUrl));
-					if (!sender) {
-						debug("POST /proxy – sender not found in registry: %s", senderUrl);
-						return { error: "Unknown federation server. Please redo the discovery process and try again.", code: "UNKNOWN_FEDERATION_SERVER_INTERACTION", action: undefined, status: 403 };
-					}
-
-					let consolidatedFollowPayload: z.infer<typeof FollowEnvelopeSchema> | null = null;
-					let consolidatedPostPayload: z.infer<typeof PostEnvelopeSchema> | null = null;
-					let action: Actions;
-					switch (true) {
-						case targetUrl.includes("/api/auth/social/follows") && body.method === "FEDERATE": {
-							debug("POST /proxy – parsing follow payload: %s", body.payload);
-							const payload = FollowEnvelopeSchema.safeParse(body.payload);
-							if (!payload.success) {
-								debug("POST /proxy – error parsing follow payload: %s", body.payload);
-								return { error: "Invalid follow payload", code: "INVALID_FOLLOW_PAYLOAD", action: undefined, status: 400 };
-							}
-							consolidatedFollowPayload = payload.data;
-							action = "FEDERATE_FOLLOW";
-							break;
+				let consolidatedFollowPayload: z.infer<typeof FollowEnvelopeSchema> | null = null;
+				let consolidatedPostPayload: z.infer<typeof PostEnvelopeSchema> | null = null;
+				let action: Actions;
+				switch (true) {
+					case targetUrl.includes("/api/auth/social/follows") && body.method === "FEDERATE": {
+						debug("POST /proxy – parsing follow payload: %s", body.payload);
+						const payload = FollowEnvelopeSchema.safeParse(body.payload);
+						if (!payload.success) {
+							debug("POST /proxy – error parsing follow payload: %s", body.payload);
+							return { error: "Invalid follow payload", code: "INVALID_FOLLOW_PAYLOAD", action: undefined, status: 400 };
 						}
-						case targetUrl.includes("/api/auth/social/posts") && body.method === "FEDERATE_POST": {
-							debug("POST /proxy – parsing federated post payload");
-							const payload = PostEnvelopeSchema.safeParse(body.payload);
-							if (!payload.success) {
-								debug("POST /proxy – error parsing federated post payload: %s", payload.error.message);
-								return { error: "Invalid federated post payload", code: "INVALID_FEDERATED_POST_PAYLOAD", action: undefined, status: 400 };
-							}
-							consolidatedPostPayload = payload.data;
-							action = "FEDERATE_POST";
-							break;
-						}
-						default: {
-							debug("POST /proxy – no endpoint specific parsing, rejecting request");
-							return { error: "Invalid payload", code: "INVALID_PAYLOAD", action: undefined, status: 400 };
-						}
+						consolidatedFollowPayload = payload.data;
+						action = "FEDERATE_FOLLOW";
+						break;
 					}
-
-					const signedEnvelope = consolidatedFollowPayload ?? consolidatedPostPayload;
-					if (!signedEnvelope) {
+					case targetUrl.includes("/api/auth/social/posts") && body.method === "FEDERATE_POST": {
+						debug("POST /proxy – parsing federated post payload");
+						const payload = PostEnvelopeSchema.safeParse(body.payload);
+						if (!payload.success) {
+							debug("POST /proxy – error parsing federated post payload: %s", payload.error.message);
+							return { error: "Invalid federated post payload", code: "INVALID_FEDERATED_POST_PAYLOAD", action: undefined, status: 400 };
+						}
+						consolidatedPostPayload = payload.data;
+						action = "FEDERATE_POST";
+						break;
+					}
+					default: {
+						debug("POST /proxy – no endpoint specific parsing, rejecting request");
 						return { error: "Invalid payload", code: "INVALID_PAYLOAD", action: undefined, status: 400 };
 					}
-
-					// Check if the signature is valid
-					const senderPublicKey = new Uint8Array(Buffer.from(sender.publicKey, "base64"));
-					const senderEncryptionPublicKey = new Uint8Array(Buffer.from(sender.encryptionPublicKey, "base64"));
-					if (!verifySignature(signedEnvelope._raw, body.signature, senderPublicKey)) {
-						debug("POST /proxy – sender signature is invalid: %s", targetUrl);
-						return { error: "The provided signature is invalid. Please redo the discovery process and try again.", code: "INVALID_SIGNATURE", action: undefined, status: 403 };
-					}
-
-					debug("POST /proxy – sender is known, keys match and is not blackisted: %s", targetUrl);
-
-					// Now we can assume that:
-					// - The sender is known to us
-					// - The sender is not blacklisted
-					// - The signature is valid with what we have in the payload
-					// - The payload is a valid action and has a valid payload
-					// - There is a known endpoint for the action
-					// Now the only thing left is to handle the action. This cannot be done in a worker since we need to return a response to the proxy server. This could eventually overload this endpoint and cause issues, but it's not something I can fix right now.
-
-					switch (action) {
-						case "FEDERATE_FOLLOW": {
-							const followEnv = consolidatedFollowPayload!;
-							debug("POST /proxy – federating follow: %s", followEnv);
-
-							// We can do the follow procedure
-							// First check if the user exists
-							const [targetUser] = await tx.select().from(user).where(eq(user.id, followEnv.following.followingId));
-							if (!targetUser) {
-								debug("POST /proxy – target user not found: %s", followEnv.following.followingId);
-								return { error: "The user you are trying to follow does not exist.", code: "USER_NOT_FOUND", status: 404 };
-							}
-
-							// Second check if the follow already exists
-							const [existingFollow] = await tx.select().from(follows).where(and(
-								eq(follows.followerId, followEnv.following.followerId),
-								eq(follows.followingId, followEnv.following.followingId),
-							));
-
-							if (existingFollow) {
-								debug("POST /proxy – follow already exists: %s", existingFollow.id);
-								return { error: "You are already following this user.", code: "FOLLOW_ALREADY_EXISTS", status: 409 };
-							}
-
-							// Third check if the user is private
-							const isPrivate = !targetUser.isPrivate;
-
-							const following = await tx.insert(follows).values({
-								id: crypto.randomUUID(),
-								followerId: followEnv.following.followerId,
-								followingId: followEnv.following.followingId,
-								accepted: isPrivate,
-								createdAt: new Date(),
-								followerServerUrl: peerRegistryUrlOrNull(senderUrl),
-								followingServerUrl: peerRegistryUrlOrNull(targetUrl),
-								acknowledged: true,
-							}).returning();
-
-							const row = following[0];
-							// Same plaintext shape as the delivery job payload / FollowInnerPayloadSchema (see federation worker).
-							const innerPayload = JSON.stringify({
-								following: {
-									id: row.id,
-									createdAt: row.createdAt,
-									followerId: row.followerId,
-									followingId: row.followingId,
-									accepted: row.accepted,
-									followerServerUrl: row.followerServerUrl,
-									acknowledged: row.acknowledged
-								},
-								federationUrl: senderUrl,
-								method: "FEDERATE" as const,
-							});
-							const signature = signMessage(innerPayload, getOwnSigningSecretKey());
-
-							return { innerPayload, signature, senderEncryptionPublicKey };
-						}
-						case "FEDERATE_POST": {
-							const postEnv = consolidatedPostPayload!;
-							const postResult = await applyFederatedPostInTransaction(tx, postEnv, body.signature, {
-								publicKey: sender.publicKey,
-								encryptionPublicKey: sender.encryptionPublicKey,
-								url: sender.url,
-							});
-							if (!postResult.ok) {
-								return {
-									error: postResult.error,
-									code: postResult.code,
-									action: undefined,
-									status: postResult.status,
-								};
-							}
-							const encKey = new Uint8Array(Buffer.from(postResult.senderEncryptionPublicKeyB64, "base64"));
-							return {
-								innerPayload: postResult.innerPayload,
-								signature: postResult.signature,
-								senderEncryptionPublicKey: encKey,
-							};
-						}
-						default: {
-							debug("POST /proxy – no action specific handling, rejecting request");
-							return { error: "Invalid action", code: "INVALID_ACTION", action: undefined, status: 400 };
-						}
-					}
-
-				});
-
-				if (result.error) {
-					return NextResponse.json({ error: result.error, code: result.code, action: result.action, status: result.status }, { status: result.status });
 				}
 
-				return NextResponse.json({
-					method: "PROXY_RESPONSE" as PROXY_METHOD,
-					status: "acknowledged",
-					data: encryptPayload(result.innerPayload!, result.senderEncryptionPublicKey!),
-					signature: result.signature,
-				}, { status: 200 });
+				const signedEnvelope = consolidatedFollowPayload ?? consolidatedPostPayload;
+				if (!signedEnvelope) {
+					return { error: "Invalid payload", code: "INVALID_PAYLOAD", action: undefined, status: 400 };
+				}
 
-			} catch (error) {
-				debug("POST /proxy – error parsing targeted data from %s: %s", request.url, error);
-				return NextResponse.json({ error: "Invalid targeted data", code: "INVALID_PROXY_DATA" }, { status: 400 });
+				// Check if the signature is valid
+				const senderPublicKey = new Uint8Array(Buffer.from(sender.publicKey, "base64"));
+				const senderEncryptionPublicKey = new Uint8Array(Buffer.from(sender.encryptionPublicKey, "base64"));
+				if (!verifySignature(signedEnvelope._raw, body.signature, senderPublicKey)) {
+					debug("POST /proxy – sender signature is invalid: %s", targetUrl);
+					return { error: "The provided signature is invalid. Please redo the discovery process and try again.", code: "INVALID_SIGNATURE", action: undefined, status: 403 };
+				}
+
+				debug("POST /proxy – sender is known, keys match and is not blackisted: %s", targetUrl);
+
+				// Now we can assume that:
+				// - The sender is known to us
+				// - The sender is not blacklisted
+				// - The signature is valid with what we have in the payload
+				// - The payload is a valid action and has a valid payload
+				// - There is a known endpoint for the action
+				// Now the only thing left is to handle the action. This cannot be done in a worker since we need to return a response to the proxy server. This could eventually overload this endpoint and cause issues, but it's not something I can fix right now.
+
+				switch (action) {
+					case "FEDERATE_FOLLOW": {
+						const followEnv = consolidatedFollowPayload!;
+						debug("POST /proxy – federating follow: %s", followEnv);
+
+						// We can do the follow procedure
+						// First check if the user exists
+						const [targetUser] = await tx.select().from(user).where(eq(user.id, followEnv.following.followingId));
+						if (!targetUser) {
+							debug("POST /proxy – target user not found: %s", followEnv.following.followingId);
+							return { error: "The user you are trying to follow does not exist.", code: "USER_NOT_FOUND", status: 404 };
+						}
+
+						// Second check if the follow already exists
+						const [existingFollow] = await tx.select().from(follows).where(and(
+							eq(follows.followerId, followEnv.following.followerId),
+							eq(follows.followingId, followEnv.following.followingId),
+						));
+
+						if (existingFollow) {
+							debug("POST /proxy – follow already exists: %s", existingFollow.id);
+							return { error: "You are already following this user.", code: "FOLLOW_ALREADY_EXISTS", status: 409 };
+						}
+
+						// Reject if the target user has blocked the remote follower.
+						const [followBlock] = await tx.select({ id: blocks.id }).from(blocks).where(and(
+							eq(blocks.blockerId, followEnv.following.followingId),
+							eq(blocks.blockedUserId, followEnv.following.followerId),
+						)).limit(1);
+
+						if (followBlock) {
+							debug("POST /proxy – target user has blocked the follower");
+							return { error: "Unable to follow this user.", code: "USER_BLOCKED", status: 403 };
+						}
+
+						// Third check if the user is private
+						const isPrivate = !targetUser.isPrivate;
+
+						const following = await tx.insert(follows).values({
+							id: crypto.randomUUID(),
+							followerId: followEnv.following.followerId,
+							followingId: followEnv.following.followingId,
+							accepted: isPrivate,
+							createdAt: new Date(),
+							followerServerUrl: peerRegistryUrlOrNull(senderUrl),
+							followingServerUrl: peerRegistryUrlOrNull(targetUrl),
+							acknowledged: true,
+						}).returning();
+
+						const row = following[0];
+						// Same plaintext shape as the delivery job payload / FollowInnerPayloadSchema (see federation worker).
+						const innerPayload = JSON.stringify({
+							following: {
+								id: row.id,
+								createdAt: row.createdAt,
+								followerId: row.followerId,
+								followingId: row.followingId,
+								accepted: row.accepted,
+								followerServerUrl: row.followerServerUrl,
+								acknowledged: row.acknowledged
+							},
+							federationUrl: senderUrl,
+							method: "FEDERATE" as const,
+						});
+						const signature = signMessage(innerPayload, getOwnSigningSecretKey());
+
+						return { innerPayload, signature, senderEncryptionPublicKey };
+					}
+					case "FEDERATE_POST": {
+						const postEnv = consolidatedPostPayload!;
+						const postResult = await applyFederatedPostInTransaction(tx, postEnv, body.signature, {
+							publicKey: sender.publicKey,
+							encryptionPublicKey: sender.encryptionPublicKey,
+							url: sender.url,
+						});
+						if (!postResult.ok) {
+							return {
+								error: postResult.error,
+								code: postResult.code,
+								action: undefined,
+								status: postResult.status,
+							};
+						}
+						const encKey = new Uint8Array(Buffer.from(postResult.senderEncryptionPublicKeyB64, "base64"));
+						return {
+							innerPayload: postResult.innerPayload,
+							signature: postResult.signature,
+							senderEncryptionPublicKey: encKey,
+						};
+					}
+					default: {
+						debug("POST /proxy – no action specific handling, rejecting request");
+						return { error: "Invalid action", code: "INVALID_ACTION", action: undefined, status: 400 };
+					}
+				}
+
+			});
+
+			if (result.error) {
+				return NextResponse.json({ error: result.error, code: result.code, action: result.action, status: result.status }, { status: result.status });
 			}
+
+			return NextResponse.json({
+				method: "PROXY_RESPONSE" as PROXY_METHOD,
+				status: "acknowledged",
+				data: encryptPayload(result.innerPayload!, result.senderEncryptionPublicKey!),
+				signature: result.signature,
+			}, { status: 200 });
+
 		}
 	}
 }

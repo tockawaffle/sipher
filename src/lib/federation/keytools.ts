@@ -1,4 +1,3 @@
-import { binary_to_base58 } from "base58-js";
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 import nacl from "tweetnacl";
 
@@ -74,8 +73,14 @@ export function decryptPayload(envelope: EncryptedEnvelope, ownX25519SecretKey: 
 		const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 		return decrypted.toString("utf8");
 	} catch (error) {
-		console.error("If you're trying to rotate keys, then your old keys are invalid and doesn't match the keys that the other federation has. You'll have to contact that federation in order to rotate your keys.")
-		console.error("If you're not trying to rotate keys, then you're either doing something wrong or the other federation shouldn't be trusted anymore. Most likely the first.")
+		if (process.env.NODE_ENV !== "test") {
+			console.error(
+				"If you're trying to rotate keys, then your old keys are invalid and doesn't match the keys that the other federation has. You'll have to contact that federation in order to rotate your keys.",
+			);
+			console.error(
+				"If you're not trying to rotate keys, then you're either doing something wrong or the other federation shouldn't be trusted anymore. Most likely the first.",
+			);
+		}
 		throw error;
 	}
 }
@@ -83,6 +88,50 @@ export function decryptPayload(envelope: EncryptedEnvelope, ownX25519SecretKey: 
 export function fingerprintKey(keyBase64: string): string {
 	const hash = createHash("sha256").update(fromBase64(keyBase64)).digest("hex");
 	return hash;
+}
+
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_MAP = new Uint8Array(256).fill(255);
+for (let i = 0; i < BASE58_ALPHABET.length; i++) BASE58_MAP[BASE58_ALPHABET.charCodeAt(i)] = i;
+
+export function binary_to_base58(bytes: Uint8Array): string {
+	const digits: number[] = [0];
+	for (const byte of bytes) {
+		let carry = byte;
+		for (let i = 0; i < digits.length; i++) {
+			carry += digits[i] << 8;
+			digits[i] = carry % 58;
+			carry = (carry / 58) | 0;
+		}
+		while (carry > 0) {
+			digits.push(carry % 58);
+			carry = (carry / 58) | 0;
+		}
+	}
+	let result = "";
+	for (let i = 0; i < bytes.length && bytes[i] === 0; i++) result += "1";
+	for (let i = digits.length - 1; i >= 0; i--) result += BASE58_ALPHABET[digits[i]];
+	return result;
+}
+
+export function base58_to_binary(str: string): Uint8Array {
+	const bytes: number[] = [0];
+	for (const char of str) {
+		const value = BASE58_MAP[char.charCodeAt(0)];
+		if (value === 255) throw new Error(`Invalid base58 character: ${char}`);
+		let carry = value;
+		for (let i = 0; i < bytes.length; i++) {
+			carry += bytes[i] * 58;
+			bytes[i] = carry & 0xff;
+			carry >>= 8;
+		}
+		while (carry > 0) {
+			bytes.push(carry & 0xff);
+			carry >>= 8;
+		}
+	}
+	for (let i = 0; i < str.length && str[i] === "1"; i++) bytes.push(0);
+	return new Uint8Array(bytes.reverse());
 }
 
 export function generateUserKeyPair(): { fingerprint: string, signingPublicKey: string, signingSecretKey: string } {
@@ -115,7 +164,7 @@ export function getOwnEncryptionPublicKey(): Uint8Array {
 	return new Uint8Array(Buffer.from(process.env.FEDERATION_ENCRYPTION_PUBLIC_KEY!, "base64"))
 }
 
-export function getOwnSigningPublicKey(): Uint8Array {
+function getOwnSigningPublicKey(): Uint8Array {
 	return new Uint8Array(Buffer.from(process.env.FEDERATION_PUBLIC_KEY!, "base64"))
 }
 

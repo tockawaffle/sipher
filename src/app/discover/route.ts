@@ -186,10 +186,15 @@ async function registerServer(validated: z.infer<typeof registerSchema>) {
 }
 
 export async function POST(request: NextRequest) {
-	const body = await request.json();
-	debug("POST /discover – method: %s", body?.method);
+	let body: unknown;
+	try {
+		body = await request.json();
+	} catch {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_JSON" }, { status: 400 });
+	}
+	debug("POST /discover – method: %s", (body as { method?: string })?.method);
 
-	if (body?.method === "DISCOVER") {
+	if (typeof body === "object" && body !== null && (body as { method?: string }).method === "DISCOVER") {
 		const validated = discoverSchema.safeParse(body);
 		if (!validated.success) {
 			debug("POST /discover – DISCOVER validation failed: %o", validated.error.message);
@@ -198,7 +203,7 @@ export async function POST(request: NextRequest) {
 		return await discoverServer(validated.data);
 	}
 
-	if (body?.method === "REGISTER") {
+	if (typeof body === "object" && body !== null && (body as { method?: string }).method === "REGISTER") {
 		const validated = registerSchema.safeParse(body);
 		if (!validated.success) {
 			debug("POST /discover – REGISTER validation failed: %o", validated.error.message);

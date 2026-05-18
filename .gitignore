@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/audits
 
 # debug
 npm-debug.log*
@@ -33,6 +34,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env.local
 .env
+
+# Docker instance env files (contain federation keys + secrets)
+# Regenerate with: bun run docker:generate-keys
+tests/docker/sipher-a.env
+tests/docker/sipher-b.env
+tests/docker/sipher-c.env
 
 # vercel
 .vercel

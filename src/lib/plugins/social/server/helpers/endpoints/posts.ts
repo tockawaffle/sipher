@@ -1,13 +1,12 @@
 import { getFederationQueue, type FederationDeliveryJob } from "@/lib/bull";
 import db from "@/lib/db";
 import { deliveryJobs, follows, posts, serverRegistry, userIdentityKeys } from "@/lib/db/schema";
-import { encryptPayload } from "@/lib/federation/keytools";
+import { base58_to_binary, encryptPayload } from "@/lib/federation/keytools";
 import { applyFederatedPostInTransaction } from "@/lib/federation/proxy-helpers/federated-post";
 import { canonicalPostBytes } from "@/lib/identity/postSignature";
 import minioClient from "@/lib/plugins/storage/server/minio.client";
 import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
 import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
-import { base58_to_binary } from "base58-js";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
@@ -117,12 +116,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 	try {
 		const publicKey = base58_to_binary(identity.signingPublicKey);
 		const signatureBytes = Uint8Array.from(Buffer.from(signature, "base64"));
-		const message = canonicalPostBytes({
-			postId,
-			authorId: user.user.id,
-			publishedAt,
-			content,
-		});
+		const message = canonicalPostBytes({ postId, authorId: user.user.id, publishedAt, content, federationUrl: process.env.BETTER_AUTH_URL! });
 		signatureValid = nacl.sign.detached.verify(message, signatureBytes, publicKey);
 	} catch (err) {
 		debug("signature verification threw: %o", err);
@@ -136,11 +130,8 @@ export const createPost = createAuthEndpoint("/social/posts", {
 	}
 
 	const isPrivate = user.user.isPrivate;
-	const shouldPropagate = {
-		all: true,
-		followers: isPrivate,
-		none: false,
-	}[user.user.postPropagationPolicy as "all" | "followers" | "none"] ?? true;
+	const policy = user.user.postPropagationPolicy as "all" | "followers" | "none";
+	const shouldFederate = policy !== "none";
 
 	const published = new Date(publishedAt);
 	const inserted = await db
@@ -150,7 +141,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 			content,
 			authorId: user.user.id,
 			published,
-			isLocal: shouldPropagate,
+			isLocal: true,
 			isPrivate,
 			federationUrl: process.env.BETTER_AUTH_URL!,
 			federationPostId: postId,
@@ -161,7 +152,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 
 	let federationDeliveriesQueued = 0;
 
-	if (shouldPropagate) {
+	if (shouldFederate) {
 		const followers = await db
 			.select()
 			.from(follows)
@@ -174,10 +165,18 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		debug("followers: %o", followers);
 		debug("following: %o", following);
 
+		if (followers.length === 0 || following.length === 0) {
+			debug("User has no followers and does not follow anyone, skipping federation");
+			return context.json(
+				{ id: inserted[0].id, federationDeliveriesQueued: 0 },
+				{ status: 200 },
+			);
+		}
+
 		const uniqueUrls = [
 			...new Set([
-				...followers.map((f) => f.followingServerUrl).filter(Boolean),
-				...following.map((f) => f.followerServerUrl).filter(Boolean),
+				...followers.map((f) => f.followerServerUrl).filter(Boolean),
+				...following.map((f) => f.followingServerUrl).filter(Boolean),
 			]),
 		] as string[];
 
@@ -199,7 +198,6 @@ export const createPost = createAuthEndpoint("/social/posts", {
 			const jobRows = uniqueUrls.map((url) => ({
 				id: crypto.randomUUID(),
 				targetUrl: url + "/api/auth/social/posts",
-				serverUrl: url,
 				payload: jobPayload,
 				attempts: 0,
 				createdAt: new Date(),
@@ -213,7 +211,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 					data: {
 						deliveryJobId: row.id,
 						targetUrl: row.targetUrl,
-						serverUrl: row.serverUrl,
+						serverUrl: new URL(row.targetUrl).origin,
 						payload: row.payload,
 					} satisfies FederationDeliveryJob,
 				})),
@@ -268,8 +266,15 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 		PRESIGN_EXPIRY_SECONDS,
 	);
 
-	const protocol = process.env.MINIO_USE_SSL === "true" ? "https" : "http";
-	const objectUrl = `${protocol}://${process.env.MINIO_ENDPOINT}:${process.env.MINIO_PORT}/${process.env.MINIO_BUCKET}/${objectKey}`;
+	// Use a presigned GET URL (1-year expiry) instead of a permanent direct object URL.
+	// This avoids leaking the MinIO origin/credentials to federation peers and preserves
+	// the ability to revoke access by invalidating the key.
+	const GET_EXPIRY_SECONDS = 365 * 24 * 60 * 60; // 1 year
+	const objectUrl = await minioClient.presignedGetObject(
+		process.env.MINIO_BUCKET!,
+		objectKey,
+		GET_EXPIRY_SECONDS,
+	);
 
 	return context.json({ presignedUrl, objectUrl, objectKey }, { status: 200 });
 });

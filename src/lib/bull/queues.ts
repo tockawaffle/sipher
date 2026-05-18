@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { Queue } from 'bullmq';
 import createDebug from 'debug';
+import { createHash } from 'node:crypto';
 import { getRedisConnection } from './connection';
 
 const debug = createDebug('app:federation:worker');

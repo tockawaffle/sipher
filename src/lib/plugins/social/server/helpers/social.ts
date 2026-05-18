@@ -175,6 +175,26 @@ export default {
 				index: false,
 				defaultValue: false,
 			},
+			/**
+			 * Base64-encoded Ed25519 detached signature from the follower.
+			 * Covers the canonical follow-request payload (followId, followerId,
+			 * followingId, createdAt) defined in followSignature.ts.
+			 */
+			requesterSignature: {
+				type: "string",
+				required: false,
+				index: false,
+			},
+			/**
+			 * Base64-encoded Ed25519 detached signature from the target user.
+			 * Covers the canonical follow-response payload (followId, response,
+			 * timestamp). Set when the target accepts or rejects.
+			 */
+			responderSignature: {
+				type: "string",
+				required: false,
+				index: false,
+			},
 		}
 	},
 	deliveryJobs: {

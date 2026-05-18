@@ -1,6 +1,8 @@
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
 import { encryptPayload } from "@/lib/federation/keytools";
+import { isJsonObjectBody } from "@/lib/http/json-object-body";
+import { checkRateLimit } from "@/lib/rate-limit/rate-limit";
 import createDebug from "debug";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,13 +46,33 @@ const schema = z.object({
  * Challenges expire in 5 minutes. SB confirms via /discover/rotate/confirm.
  */
 export async function POST(request: NextRequest) {
-	const body = await request.json();
-	debug("POST /discover/rotate/init – rotation request for %s", body?.url);
+	let body: unknown;
+	try {
+		body = await request.json();
+	} catch {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_JSON" }, { status: 400 });
+	}
+	if (!isJsonObjectBody(body)) {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_JSON" }, { status: 400 });
+	}
+	debug("POST /discover/rotate/init – rotation request for %s", (body as { url?: string }).url);
 
 	const validated = schema.safeParse(body);
 	if (!validated.success) {
 		debug("POST /discover/rotate/init – validation failed: %o", validated.error.message);
 		return NextResponse.json({ error: validated.error.message }, { status: 400 });
+	}
+
+	// Per-serverUrl rate limit to prevent bulk rotation init attempts
+	const rlResult = await checkRateLimit(`rotate-init:${validated.data.url.toString()}`, {
+		limit: 2,
+		windowSeconds: 60,
+	});
+	if (!rlResult.allowed) {
+		debug("POST /discover/rotate/init – rate limited for %s", validated.data.url);
+		return NextResponse.json({
+			error: "Too many rotation init attempts for this server. Please try again later.",
+		}, { status: 429 });
 	}
 
 	const [blacklisted] = await db.select().from(blacklistedServers)

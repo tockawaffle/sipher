@@ -28,12 +28,12 @@ interface FederationDeliveryJob {
 
 Defines the data contract for a federation delivery job.
 
-| Field          | Type     | Description                                                                 |
-| -------------- | -------- | --------------------------------------------------------------------------- |
-| `deliveryJobId`| `string` | Primary key of the corresponding row in the `deliveryJobs` database table.  |
-| `targetUrl`    | `string` | Full URL of the remote server's federation inbox endpoint.                  |
-| `serverUrl`    | `string` | Origin URL of the target server (used for registry lookups and blacklisting).|
-| `payload`      | `string` | Serialized JSON string containing the activity method and associated data.   |
+| Field           | Type     | Description                                                                   |
+| --------------- | -------- | ----------------------------------------------------------------------------- |
+| `deliveryJobId` | `string` | Primary key of the corresponding row in the `deliveryJobs` database table.    |
+| `targetUrl`     | `string` | Full URL of the remote server's federation inbox endpoint.                    |
+| `serverUrl`     | `string` | Origin URL of the target server (used for registry lookups and blacklisting). |
+| `payload`       | `string` | Serialized JSON string containing the activity method and associated data.    |
 
 ### `HealthCheckJob`
 
@@ -45,9 +45,9 @@ interface HealthCheckJob {
 
 Defines the data contract for a health-check job.
 
-| Field       | Type     | Description                                 |
-| ----------- | -------- | ------------------------------------------- |
-| `serverUrl` | `string` | The remote server URL to probe for health.  |
+| Field       | Type     | Description                                |
+| ----------- | -------- | ------------------------------------------ |
+| `serverUrl` | `string` | The remote server URL to probe for health. |
 
 ---
 
@@ -107,12 +107,12 @@ Returns a singleton `Queue<FederationDeliveryJob>` instance backed by the `feder
 
 **Default job options:**
 
-| Option            | Value            | Rationale                                                    |
-| ----------------- | ---------------- | ------------------------------------------------------------ |
-| `attempts`        | `5`              | Up to 5 retries before the job is marked as failed.          |
-| `backoff`         | exponential, 5s  | Delay doubles on each retry: 5s, 10s, 20s, 40s.             |
-| `removeOnComplete`| `{ age: 86400 }`  | Completed jobs are pruned after 24 hours.                    |
-| `removeOnFail`    | `{ age: 604800 }` | Failed jobs are retained for 7 days for diagnostics.         |
+| Option             | Value             | Rationale                                            |
+| ------------------ | ----------------- | ---------------------------------------------------- |
+| `attempts`         | `5`               | Up to 5 retries before the job is marked as failed.  |
+| `backoff`          | exponential, 5s   | Delay doubles on each retry: 5s, 10s, 20s, 40s.      |
+| `removeOnComplete` | `{ age: 86400 }`  | Completed jobs are pruned after 24 hours.            |
+| `removeOnFail`     | `{ age: 604800 }` | Failed jobs are retained for 7 days for diagnostics. |
 
 ---
 
@@ -136,10 +136,10 @@ Schedules a delayed health-check job for a remote server.
 
 **Parameters:**
 
-| Parameter   | Type     | Description                                                           |
-| ----------- | -------- | --------------------------------------------------------------------- |
-| `serverUrl` | `string` | The remote server URL to check.                                       |
-| `attempt`   | `number` | Zero-based attempt counter; used to compute the delay and job ID.     |
+| Parameter   | Type     | Description                                                       |
+| ----------- | -------- | ----------------------------------------------------------------- |
+| `serverUrl` | `string` | The remote server URL to check.                                   |
+| `attempt`   | `number` | Zero-based attempt counter; used to compute the delay and job ID. |
 
 **Internal logic:**
 
@@ -163,27 +163,27 @@ Workers use a dedicated Redis connection via `getRedisWorkerConnection()`, separ
 
 **Delivery worker configuration:**
 
-| Option        | Value   |
-| ------------- | ------- |
-| `concurrency` | `10`    |
+| Option        | Value |
+| ------------- | ----- |
+| `concurrency` | `10`  |
 
 **Health-check worker configuration:**
 
-| Option        | Value   |
-| ------------- | ------- |
-| `concurrency` | `3`     |
+| Option        | Value |
+| ------------- | ----- |
+| `concurrency` | `3`   |
 
 **Lifecycle events:**
 
-| Worker         | Event       | Behavior                                                                    |
-| -------------- | ----------- | --------------------------------------------------------------------------- |
-| Delivery       | `ready`     | Logs a confirmation that the worker is connected to Redis.                  |
-| Delivery       | `failed`    | Logs the job ID, method, target URL, attempt count, remaining retries, and error. |
-| Delivery       | `completed` | Deletes the corresponding `deliveryJobs` database row.                     |
-| Delivery       | `error`     | Logs a generic worker-level error to the console.                           |
-| Health-check   | `ready`     | Logs a confirmation that the worker is connected to Redis.                  |
-| Health-check   | `failed`    | Logs the job ID and error message.                                          |
-| Health-check   | `error`     | Logs a generic worker-level error to the console.                           |
+| Worker       | Event       | Behavior                                                                          |
+| ------------ | ----------- | --------------------------------------------------------------------------------- |
+| Delivery     | `ready`     | Logs a confirmation that the worker is connected to Redis.                        |
+| Delivery     | `failed`    | Logs the job ID, method, target URL, attempt count, remaining retries, and error. |
+| Delivery     | `completed` | Deletes the corresponding `deliveryJobs` database row.                            |
+| Delivery     | `error`     | Logs a generic worker-level error to the console.                                 |
+| Health-check | `ready`     | Logs a confirmation that the worker is connected to Redis.                        |
+| Health-check | `failed`    | Logs the job ID and error message.                                                |
+| Health-check | `error`     | Logs a generic worker-level error to the console.                                 |
 
 **Returns:** `{ deliveryWorker, healthCheckWorker }`
 
@@ -251,13 +251,13 @@ Processes the acknowledgment (`PROXY_RESPONSE`) for a `deliver-follow` job.
 
 **Parameters:**
 
-| Parameter              | Type                    | Description                                      |
-| -----------------------| ----------------------- | ------------------------------------------------ |
-| `ackPayload`           | `AckPayload`            | The acknowledgment payload containing signature and decrypted data. |
-| `serverUrl`            | `string`                | Origin URL of the remote server.                 |
-| `cachedServerPublicKey`| `string \| undefined`   | The server's signing public key, if already known from the registry at delivery time. |
-| `deliveryJobId`        | `string`                | ID of the delivery job record for cleanup.       |
-| `jobId`                | `string \| undefined`   | BullMQ job ID for diagnostic logging.            |
+| Parameter               | Type                  | Description                                                                           |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------------- |
+| `ackPayload`            | `AckPayload`          | The acknowledgment payload containing signature and decrypted data.                   |
+| `serverUrl`             | `string`              | Origin URL of the remote server.                                                      |
+| `cachedServerPublicKey` | `string \| undefined` | The server's signing public key, if already known from the registry at delivery time. |
+| `deliveryJobId`         | `string`              | ID of the delivery job record for cleanup.                                            |
+| `jobId`                 | `string \| undefined` | BullMQ job ID for diagnostic logging.                                                 |
 
 **Internal logic:**
 
@@ -317,36 +317,36 @@ await scheduleHealthCheck('https://remote.example.com', 0);
 
 Jobs that throw `UnrecoverableError` are immediately marked as failed and **will not be retried**, even if the queue's `attempts` option is greater than 1.
 
-| Scenario                          | Thrown From                    | Description                                             |
-| --------------------------------- | ------------------------------ | ------------------------------------------------------- |
-| Malformed payload JSON            | `processFederationDelivery`    | The job payload cannot be parsed as valid JSON.         |
-| Missing or non-string method      | `processFederationDelivery`    | The `method` field is missing, not a string, or not in the allowed set.|
-| Blacklisted target server         | `processFederationDelivery`    | The target server is in the `blacklistedServers` table. |
-| Missing `BETTER_AUTH_URL`         | `processFederationDelivery`    | The environment variable is not set; federation requests cannot be sent. |
-| Non-JSON response from remote     | `processFederationDelivery`    | The remote returned a 200 OK with a non-JSON body.      |
-| Missing acknowledgment            | `processFederationDelivery`    | The remote response does not contain a `PROXY_RESPONSE` payload.|
-| Invalid follow ack payload        | `handleFollowAck`              | The decrypted payload fails `FollowEnvelopeSchema` validation. |
-| Missing signing public key        | `handleFollowAck`              | The server has no `publicKey` in the registry to verify the ack signature. |
-| Signature verification failure    | `handleFollowAck`              | The cryptographic signature on the ack does not match.  |
+| Scenario                       | Thrown From                 | Description                                                                |
+| ------------------------------ | --------------------------- | -------------------------------------------------------------------------- |
+| Malformed payload JSON         | `processFederationDelivery` | The job payload cannot be parsed as valid JSON.                            |
+| Missing or non-string method   | `processFederationDelivery` | The `method` field is missing, not a string, or not in the allowed set.    |
+| Blacklisted target server      | `processFederationDelivery` | The target server is in the `blacklistedServers` table.                    |
+| Missing `BETTER_AUTH_URL`      | `processFederationDelivery` | The environment variable is not set; federation requests cannot be sent.   |
+| Non-JSON response from remote  | `processFederationDelivery` | The remote returned a 200 OK with a non-JSON body.                         |
+| Missing acknowledgment         | `processFederationDelivery` | The remote response does not contain a `PROXY_RESPONSE` payload.           |
+| Invalid follow ack payload     | `handleFollowAck`           | The decrypted payload fails `FollowEnvelopeSchema` validation.             |
+| Missing signing public key     | `handleFollowAck`           | The server has no `publicKey` in the registry to verify the ack signature. |
+| Signature verification failure | `handleFollowAck`           | The cryptographic signature on the ack does not match.                     |
 
 ### Retryable Errors
 
 Jobs that throw a regular `Error` are returned to the queue and retried according to the queue's backoff configuration.
 
-| Scenario                          | Thrown From                    | Description                                             |
-| --------------------------------- | ------------------------------ | ------------------------------------------------------- |
-| Auto-discovery failure            | `processFederationDelivery`    | The server is not in the registry and `discoverAndRegister` throws a non-`DiscoveryError`. |
-| HTTP delivery failure             | `processFederationDelivery`    | The remote endpoint returns a non-OK HTTP status code.  |
-| Network / fetch error             | `processFederationDelivery`    | `federationFetch` throws due to timeout, DNS failure, etc. |
+| Scenario               | Thrown From                 | Description                                                                                |
+| ---------------------- | --------------------------- | ------------------------------------------------------------------------------------------ |
+| Auto-discovery failure | `processFederationDelivery` | The server is not in the registry and `discoverAndRegister` throws a non-`DiscoveryError`. |
+| HTTP delivery failure  | `processFederationDelivery` | The remote endpoint returns a non-OK HTTP status code.                                     |
+| Network / fetch error  | `processFederationDelivery` | `federationFetch` throws due to timeout, DNS failure, etc.                                 |
 
 ### Silent Skips (No Error)
 
-| Scenario                          | Location                      | Description                                             |
-| --------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| Unhealthy reason not checkable    | `processHealthCheck`          | The server's threat policy forbids direct health checks.|
-| Server already healthy            | `processHealthCheck`          | The server is already marked healthy in the registry.   |
-| Server not in registry            | `processHealthCheck`          | The server was removed or never registered.             |
-| Unknown follow ack                | `handleFollowAck`             | The local `follows` table has no matching row for the acknowledged follow. |
+| Scenario                       | Location             | Description                                                                |
+| ------------------------------ | -------------------- | -------------------------------------------------------------------------- |
+| Unhealthy reason not checkable | `processHealthCheck` | The server's threat policy forbids direct health checks.                   |
+| Server already healthy         | `processHealthCheck` | The server is already marked healthy in the registry.                      |
+| Server not in registry         | `processHealthCheck` | The server was removed or never registered.                                |
+| Unknown follow ack             | `handleFollowAck`    | The local `follows` table has no matching row for the acknowledged follow. |
 
 ### Worker-Level Errors
 

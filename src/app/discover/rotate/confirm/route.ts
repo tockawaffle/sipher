@@ -1,6 +1,7 @@
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
 import { decryptPayload, verifySignature } from "@/lib/federation/keytools";
+import { isJsonObjectBody } from "@/lib/http/json-object-body";
 import createDebug from "debug";
 import { eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
@@ -34,11 +35,18 @@ const debug = createDebug("app:discover:rotate:confirm");
  * - encryptionOldPlaintext: SB holds the old X25519 private key (encryption identity proof)
  * - encryptionNewPlaintext: SB holds the new X25519 private key (encryption ownership proof)
  * - Envelope encrypted with SA's X25519 key: SB fetched SA's /discover (identity binding)
- * - Discover being fetched: SB fetched SA's /discover endpoint (liveliness proof) <- Not accounted for but it is a proof that the other federation is alive and responsive.
  */
 export async function POST(request: NextRequest) {
-	const body = await request.json();
-	debug("POST /discover/rotate/confirm – confirmation request for %s", body?.serverUrl);
+	let body: unknown;
+	try {
+		body = await request.json();
+	} catch {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_JSON" }, { status: 400 });
+	}
+	if (!isJsonObjectBody(body)) {
+		return NextResponse.json({ error: "Invalid JSON", code: "INVALID_JSON" }, { status: 400 });
+	}
+	debug("POST /discover/rotate/confirm – confirmation request for %s", (body as { serverUrl?: string }).serverUrl);
 
 	const validated = z.object({
 		serverUrl: z.url(),
@@ -81,15 +89,15 @@ export async function POST(request: NextRequest) {
 		}
 
 		if (challenge.attemptsLeft <= 0) {
-			debug("POST /discover/rotate/confirm – no attempts left, blacklisting %s", challenge.serverUrl);
-			await tx.insert(blacklistedServers).values({
-				id: crypto.randomUUID(),
-				serverUrl: challenge.serverUrl,
-				reason: "Too many failed attempts to confirm key rotation challenge",
-				createdAt: new Date(),
-			});
+			// Cancel the challenge without blacklisting the server. Blacklisting
+			// here would be unsafe because anyone can open an init challenge for
+			// an arbitrary server URL — auto-blacklisting on failed confirms
+			// lets an attacker permanently ban a legitimate peer with no effort.
+			debug("POST /discover/rotate/confirm – no attempts left, cancelling challenge for %s", challenge.serverUrl);
 			await tx.delete(rotateChallengeTokens).where(eq(rotateChallengeTokens.id, challenge.id));
-			return NextResponse.json({ error: "Your server has been blacklisted. Please contact support to unblacklist your server." }, { status: 403 });
+			return NextResponse.json({
+				error: "Too many failed attempts. The rotation challenge has been cancelled. Please initiate a new rotation.",
+			}, { status: 403 });
 		}
 
 		debug("POST /discover/rotate/confirm – %d attempt(s) left, decrypting envelope", challenge.attemptsLeft);
@@ -113,7 +121,7 @@ export async function POST(request: NextRequest) {
 				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
 			}).where(eq(rotateChallengeTokens.id, challenge.id));
 			return NextResponse.json({
-				error: `Failed to decrypt envelope. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+				error: `Failed to decrypt envelope. You have ${challenge.attemptsLeft - 1} attempt(s) left.`,
 			}, { status: 400 });
 		}
 
@@ -153,7 +161,7 @@ export async function POST(request: NextRequest) {
 				attemptsLeft: sql`${rotateChallengeTokens.attemptsLeft} - 1`,
 			}).where(eq(rotateChallengeTokens.id, challenge.id));
 			return NextResponse.json({
-				error: `Challenge verification failed. You have ${challenge.attemptsLeft - 1} attempts left before your server is blacklisted.`,
+				error: `Challenge verification failed. You have ${challenge.attemptsLeft - 1} attempt(s) left.`,
 			}, { status: 400 });
 		}
 

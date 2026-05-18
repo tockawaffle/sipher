@@ -8,16 +8,11 @@ export function PostTestForm() {
 	const { data: session } = authClient.useSession();
 	const [text, setText] = useState("");
 	const [files, setFiles] = useState<File[]>([]);
-	const [password, setPassword] = useState("");
 	const [status, setStatus] = useState<string | null>(null);
 
 	const handleSubmit = async () => {
 		if (!session?.user.id) {
 			setStatus("Not signed in.");
-			return;
-		}
-		if (!password) {
-			setStatus("Enter your master password to unlock the signing key.");
 			return;
 		}
 
@@ -38,7 +33,7 @@ export function PostTestForm() {
 				return;
 			}
 
-			const result = await authClient.createPost(content, session.user.id, password);
+			const result = await authClient.createPost(content, session.user.id);
 			setStatus(`Done: ${JSON.stringify(result)}`);
 		} catch (err) {
 			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -99,19 +94,6 @@ export function PostTestForm() {
 						))}
 					</div>
 				)}
-			</div>
-
-			<div style={{ marginBottom: 12 }}>
-				<label style={{ display: "block", marginBottom: 4, fontWeight: 600 }}>
-					Master password (unlocks signing key)
-				</label>
-				<input
-					type="password"
-					value={password}
-					onChange={(e) => setPassword(e.target.value)}
-					placeholder="••••••••••••"
-					style={{ width: "100%", padding: 8, fontSize: 14 }}
-				/>
 			</div>
 
 			<button

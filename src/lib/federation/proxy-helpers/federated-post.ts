@@ -15,11 +15,11 @@ export type FederatedPostSender = {
 
 export type FederatedPostResult =
 	| {
-			ok: true;
-			innerPayload: string;
-			signature: string;
-			senderEncryptionPublicKeyB64: string;
-	  }
+		ok: true;
+		innerPayload: string;
+		signature: string;
+		senderEncryptionPublicKeyB64: string;
+	}
 	| { ok: false; error: string; code: string; status: number };
 
 export async function applyFederatedPostInTransaction(

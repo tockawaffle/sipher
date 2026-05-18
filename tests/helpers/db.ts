@@ -1,6 +1,7 @@
 // tests/helpers/db.ts
 import db from "@/lib/db";
 import { blacklistedServers, rotateChallengeTokens, serverRegistry } from "@/lib/db/schema";
+import getRedisClient from "@/lib/redis";
 import { eq } from "drizzle-orm";
 import nacl from "tweetnacl";
 
@@ -52,25 +53,21 @@ export async function getServerByUrl(url: string) {
 	return (await db.select().from(serverRegistry).where(eq(serverRegistry.url, url)))[0]
 }
 
-export async function clearServerRegistry() {
+async function clearServerRegistry() {
 	return await db.delete(serverRegistry)
 }
 
-export async function clearRotateChallengeTokens() {
+async function clearRotateChallengeTokens() {
 	return await db.delete(rotateChallengeTokens)
 }
 
-export async function insertServerEcho(url: string, publicKey: string, encryptionPublicKey: string) {
-	await db.insert(serverRegistry).values({
+export async function seedBlacklist(serverUrl: string, reason = "test-blacklist") {
+	await db.insert(blacklistedServers).values({
 		id: crypto.randomUUID(),
-		url,
-		publicKey,
-		encryptionPublicKey,
-		lastSeen: new Date(),
+		serverUrl,
 		createdAt: new Date(),
-		updatedAt: new Date(),
-		isHealthy: true,
-	}).onConflictDoNothing()
+		reason,
+	})
 }
 
 export async function getBlacklistedServer(serverUrl: string) {
@@ -81,14 +78,27 @@ export async function getChallengesByServerUrl(serverUrl: string) {
 	return await db.select().from(rotateChallengeTokens).where(eq(rotateChallengeTokens.serverUrl, serverUrl))
 }
 
-export async function clearBlacklist() {
+async function clearBlacklist() {
 	return await db.delete(blacklistedServers)
 }
 
+/**
+ * Rotation `/discover/rotate/init` uses Redis `checkRateLimit("rotate-init:<url>")`.
+ * DB truncation alone leaves buckets hot across Playwright tests (same SERVER_URL).
+ */
+async function clearRotateInitRateLimitKeys() {
+	const redis = getRedisClient();
+	const keys = await redis.keys("rl:rotate-init:*");
+	if (keys.length > 0) {
+		await redis.del(...keys);
+	}
+}
+
 export async function clearTables() {
-	return await Promise.all([
+	await Promise.all([
 		clearRotateChallengeTokens(),
 		clearBlacklist(),
 		clearServerRegistry(),
-	])
+	]);
+	await clearRotateInitRateLimitKeys();
 }

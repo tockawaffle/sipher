@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 const debug = createDebug('app:federation:registry');
 
 export async function upsertServer(url: string, publicKey: string, encryptionPublicKey: string) {
+	assertSafeUrl(url);
 	return await db.insert(serverRegistry).values({
 		id: crypto.randomUUID(),
 		url,
@@ -137,6 +138,10 @@ export async function discoverAndRegister(serverUrl: string): Promise<string> {
 			await upsertServer(echo.url, echo.publicKey, echo.encryptionPublicKey);
 		}
 	} catch (err) {
+		console.warn(
+			`[federation] Mutual REGISTER to ${serverUrl} failed (non-fatal):`,
+			err instanceof Error ? err.message : err,
+		);
 		debug('mutual REGISTER to %s failed (non-fatal): %s', serverUrl, err instanceof Error ? err.message : err);
 	}
 

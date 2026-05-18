@@ -109,6 +109,8 @@ export const follows = pgTable(
       { onDelete: "cascade" },
     ),
     acknowledged: boolean("acknowledged").default(false).notNull(),
+    requesterSignature: text("requester_signature"),
+    responderSignature: text("responder_signature"),
   },
   (table) => [
     index("follows_followerServerUrl_idx").on(table.followerServerUrl),

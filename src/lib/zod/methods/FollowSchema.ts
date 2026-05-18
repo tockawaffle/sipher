@@ -15,4 +15,3 @@ const FollowInnerPayloadSchema = z.object({
 });
 
 export const FollowEnvelopeSchema = createEncryptedEnvelopeSchema(FollowInnerPayloadSchema);
-export default FollowInnerPayloadSchema;

@@ -2,7 +2,7 @@ import Redis from "ioredis";
 
 let redisClient: Redis | null = null;
 
-export function getRedisClient(): Redis {
+function getRedisClient(): Redis {
 	if (!redisClient) {
 		redisClient = new Redis(process.env.REDIS_URL!);
 	}
