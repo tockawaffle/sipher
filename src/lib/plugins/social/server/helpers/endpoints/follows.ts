@@ -54,8 +54,21 @@ export const followUser = createAuthEndpoint("/social/follows", {
 			requestBody: jsonRequestBody(followSchema),
 			responses: {
 				"200": {
-					description: "The follow was stored or acknowledged. The body depends on the method.",
-					content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
+					description:
+						"INSERT returns { following }, RESPOND returns { follow }, FEDERATE returns { status, accepted }.",
+					content: {
+						"application/json": {
+							schema: {
+								type: "object",
+								properties: {
+									following: { type: "object", description: "INSERT: the stored follow row" },
+									follow: { type: "object", description: "RESPOND: the updated follow row" },
+									status: { type: "string", enum: ["acknowledged"], description: "FEDERATE: delivery acknowledged" },
+									accepted: { type: "boolean", description: "FEDERATE: whether the follow was accepted right away" },
+								},
+							},
+						},
+					},
 				},
 			},
 		},
