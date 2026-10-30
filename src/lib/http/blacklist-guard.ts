@@ -7,21 +7,16 @@ import { Elysia } from 'elysia'
 export const blacklistGuard = new Elysia({ name: 'sipher-blacklist' }).onRequest(async ({ request }) => {
 	const ownUrl = process.env.BETTER_AUTH_URL
 
-	// If coming from self, skip
-	if (
-		request.headers.get('x-federation-origin') === ownUrl ||
-		request.headers.get('origin') === ownUrl
-	) {
-		return
-	}
-
+	// Our own URL is never blacklisted, but skip it per header instead of
+	// returning early: a request could pair our URL in one header with a
+	// blacklisted URL in the other.
 	const candidates: string[] = []
 
 	const origin = request.headers.get('origin')
-	if (origin) candidates.push(origin)
+	if (origin && origin !== ownUrl) candidates.push(origin)
 
 	const federationOrigin = request.headers.get('x-federation-origin')
-	if (federationOrigin) candidates.push(federationOrigin)
+	if (federationOrigin && federationOrigin !== ownUrl) candidates.push(federationOrigin)
 
 	const method = request.method.toUpperCase()
 	if (['POST', 'PUT', 'PATCH'].includes(method)) {

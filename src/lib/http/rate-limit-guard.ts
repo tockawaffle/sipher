@@ -9,7 +9,9 @@ import { Elysia } from 'elysia'
 export const rateLimitGuard = new Elysia({ name: 'sipher-rate-limit' }).onRequest(
 	async ({ request, server }) => {
 		try {
-			const pathname = new URL(request.url).pathname
+			// Elysia routes `/discover/` to `/discover`, so match rules without the trailing slash.
+			const rawPath = new URL(request.url).pathname
+			const pathname = rawPath.length > 1 ? rawPath.replace(/\/+$/, '') : rawPath
 			const method = request.method.toUpperCase()
 
 			const rule = RATE_LIMIT_ROUTES[pathname]
