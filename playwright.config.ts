@@ -18,7 +18,7 @@ export default defineConfig({
 		trace: 'on-first-retry',
 	},
 	webServer: {
-		command: 'cross-env NODE_ENV=test tsx src/server.ts',
+		command: 'NODE_ENV=test bun src/server.ts',
 		url: process.env.BETTER_AUTH_URL,
 		reuseExistingServer: !process.env.CI,
 		timeout: 120_000,

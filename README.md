@@ -16,19 +16,18 @@ Every user controls their own Ed25519 keypair generated from a BIP-39 mnemonic. 
 
 ## Architecture
 
-SiPher runs as a single Node.js process that serves both the web app and the federation API.
+SiPher is an **API-only** server: a single Bun process running [Elysia](https://elysiajs.com) that serves the Better Auth endpoints, the federation API and a WebSocket channel. There is no bundled UI; clients talk to the API directly, and the browser-side identity/signing code lives in `src/sdk` (the seed of a future `@sipher/sdk` package).
 
 
 | Layer          | Technology                                                                            |
 | -------------- | ------------------------------------------------------------------------------------- |
-| Framework      | Next.js 16 (App Router, React 19, standalone output)                                  |
+| Framework      | Elysia on Bun (`src/app.ts`), OpenAPI docs at `/openapi`                              |
 | Authentication | [Better Auth](https://better-auth.com) — email/password, username, 2FA, bearer tokens |
 | Database       | PostgreSQL via [Drizzle ORM](https://orm.drizzle.team)                                |
 | Cache / Queues | Redis — session storage, rate limiting, BullMQ background jobs                        |
 | Object Storage | MinIO (S3-compatible) — media uploads with presigned URLs                             |
 | Client Storage | IndexedDB (Dexie) — encrypted identity keypairs                                       |
-| Real-time      | Socket.IO — firehose channel for live updates                                         |
-| UI             | Tailwind CSS v4, shadcn/ui, Radix primitives, Framer Motion                           |
+| Real-time      | Bun native WebSocket pub/sub at `/ws` — firehose topic for live updates               |
 
 
 ### Custom Better Auth Plugins
@@ -129,7 +128,7 @@ Two Redis-backed queues handle asynchronous federation operations:
 - **Federation delivery queue** — Encrypts and delivers activity (follows, posts, unfollows) to remote servers. 10 concurrent workers, up to 5 retries with exponential backoff (5s base). On success, the delivery job record is cleaned up automatically.
 - **Health-check queue** — Probes unhealthy servers via `GET /discover` with exponential backoff (5min, 15min, 25min...), up to 5 attempts. If a server responds, it is re-marked healthy.
 
-Workers are started automatically at application bootstrap via Next.js `instrumentation.ts`.
+Workers are started automatically at application bootstrap in `src/server.ts`.
 
 ### Key Rotation
 
@@ -150,8 +149,7 @@ Failed confirmations do **not** auto-blacklist the server — preventing griefin
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 20+
-- [Bun](https://bun.sh/) (for tooling scripts and key generation)
+- [Bun](https://bun.sh/) 1.3+ (runtime, tooling and key generation)
 - [PostgreSQL](https://www.postgresql.org/) 15+
 - [Redis](https://redis.io/) 7+
 - (Optional) [MinIO](https://min.io/) or any S3-compatible object store for media
@@ -174,7 +172,7 @@ DATABASE_URL=postgresql://user:password@host:5432/sipher
 REDIS_URL=redis://host:6379
 
 # Federation signing keypair (Ed25519, base64)
-# Generate with: npm run keygen
+# Generate with: bun run keygen
 FEDERATION_PUBLIC_KEY=<base64>
 FEDERATION_PRIVATE_KEY=<base64>
 
@@ -197,6 +195,9 @@ EMAIL_SECURE=false
 EMAIL_USER=noreply@your-server.com
 EMAIL_PASSWORD=<password>
 
+# Comma-separated list of allowed CORS origins for front-ends (default: any origin)
+# CORS_ORIGINS=https://app.your-server.com
+
 # Development only: override SSRF guard to allow private IPs
 # DEV_ALLOWED_HOSTNAMES=localhost,127.0.0.1,::1
 
@@ -210,17 +211,17 @@ The schema is managed via Drizzle Kit. Everything is auto-generated from Better 
 
 ```sh
 # Push schema directly (development)
-npm run db:push
+bun run db:push
 
 # Or generate a migration and apply it
-npm run db:generate
-npm run db:migrate
+bun run db:generate
+bun run db:migrate
 ```
 
 ### Federation Keys
 
 ```sh
-npm run keygen
+bun run keygen
 ```
 
 This runs `src/lib/federation/keygen.ts`, which generates both Ed25519 (signing) and X25519 (encryption) keypairs and writes them to `.env.local`.
@@ -232,23 +233,22 @@ This runs `src/lib/federation/keygen.ts`, which generates both Ed25519 (signing)
 
 | Command                             | Purpose                                                       |
 | ----------------------------------- | ------------------------------------------------------------- |
-| `npm run dev`                       | Start development server (enables private URLs for local dev) |
-| `npm run build`                     | `next build`                                                  |
-| `npm run start`                     | Production start (`node src/server.ts`)                       |
-| `npm run keygen`                    | Generate federation signing + encryption keys                 |
-| `npm run build:matrix`              | Download native Matrix crypto WASM binary                     |
-| `npm run email:dev`                 | React Email dev server (port 3001)                            |
-| `npm run db:push`                   | Push Drizzle schema to database                               |
-| `npm run db:migrate`                | Push + migrate (two-step)                                     |
-| `npm run db:generate`               | Regenerate Better Auth schema + Drizzle files                 |
-| `npm run db:update`                 | Generate + push                                               |
-| `npm run test`                      | Run Playwright e2e tests (`**/*.e2e.ts`)                      |
-| `npm run test:federation`           | Key rotation e2e tests                                        |
-| `npm run test:key`                  | Key rotation e2e tests only                                   |
-| `npm run test:proxy`                | Proxy `/proxy` route e2e tests (single-server validation)     |
-| `npm run docker:test:discover`      | `/discover` integration tests against the 3-instance cluster  |
-| `npm run docker:test:proxy-chain`   | Proxy relay + failover integration tests                      |
-| `npm run docker:test:post-delivery` | Federated post delivery integration test                      |
+| `bun run dev`                       | Start development server (enables private URLs for local dev) |
+| `bun run start`                     | Production start (`bun src/server.ts`)                        |
+| `bun run keygen`                    | Generate federation signing + encryption keys                 |
+| `bun run build:matrix`              | Download native Matrix crypto binary (see note in PR)         |
+| `bun run email:dev`                 | React Email dev server (port 3001)                            |
+| `bun run db:push`                   | Push Drizzle schema to database                               |
+| `bun run db:migrate`                | Push + migrate (two-step)                                     |
+| `bun run db:generate`               | Regenerate Better Auth schema + Drizzle files                 |
+| `bun run db:update`                 | Generate + push                                               |
+| `bun run test`                      | Run Playwright e2e tests (`**/*.e2e.ts`)                      |
+| `bun run test:federation`           | Key rotation e2e tests                                        |
+| `bun run test:key`                  | Key rotation e2e tests only                                   |
+| `bun run test:proxy`                | Proxy `/proxy` route e2e tests (single-server validation)     |
+| `bun run docker:test:discover`      | `/discover` integration tests against the 3-instance cluster  |
+| `bun run docker:test:proxy-chain`   | Proxy relay + failover integration tests                      |
+| `bun run docker:test:post-delivery` | Federated post delivery integration test                      |
 
 
 ---
@@ -309,12 +309,12 @@ SiPher uses [Playwright](https://playwright.dev) for integration/e2e tests (matc
 
 ```sh
 npm test                    # All Playwright e2e tests
-npm run test:federation     # Discover + key rotation tests
-npm run test:proxy          # Proxy relay tests
+bun run test:federation     # Discover + key rotation tests
+bun run test:proxy          # Proxy relay tests
 bun test                    # Bun unit tests (keytools, etc.)
 ```
 
-Playwright starts the server automatically via `tsx src/server.ts` with `NODE_ENV=test`. The Playwright suites that remain (`tests/proxy/proxy.e2e.ts`, `tests/federation/key-rotation.e2e.ts`) drive their own local DB state and don't need the federation cluster. Anything that exercises real peer-to-peer federation — `/discover` REGISTER/DISCOVER, proxy relay, federated post delivery — lives under `tests/integration/` and runs against the dockerized 3-instance cluster.
+Playwright starts the server automatically via `bun src/server.ts` with `NODE_ENV=test`. The Playwright suites that remain (`tests/proxy/proxy.e2e.ts`, `tests/federation/key-rotation.e2e.ts`) drive their own local DB state and don't need the federation cluster. Anything that exercises real peer-to-peer federation — `/discover` REGISTER/DISCOVER, proxy relay, federated post delivery — lives under `tests/integration/` and runs against the dockerized 3-instance cluster.
 
 ### Docker-based integration tests
 
