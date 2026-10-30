@@ -80,8 +80,7 @@ export const sipherOven = () => {
 			},
 			/**
 			 * Identity keys of remote authors, pinned on their first federated
-			 * post. Keyed by (federationUrl, remoteUserId); the unique index on
-			 * that pair lives in `src/lib/db/schema/index.ts`.
+			 * post. One row per (federationUrl, remoteUserId).
 			 */
 			remoteIdentityKeys: {
 				fields: {
@@ -91,6 +90,9 @@ export const sipherOven = () => {
 					firstSeenAt: { type: "date", required: true },
 					lastSeenAt: { type: "date", required: true },
 				},
+				indexes: [
+					{ fields: ["federationUrl", "remoteUserId"], name: "remoteIdentityKeys_origin_uidx", unique: true },
+				],
 			},
 			/**
 			 * Per-device OLM key bundle. One row per device, single JSON blob

@@ -25,7 +25,9 @@ export const user = pgTable("user", {
   displayUsername: text("display_username"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   isPrivate: boolean("is_private").default(false),
-  postPropagationPolicy: text("post_propagation_policy").default("all"),
+  postPropagationPolicy: text("post_propagation_policy", {
+    enum: ["all", "followers", "none"],
+  }).default("all"),
 });
 
 export const account = pgTable(
@@ -62,6 +64,8 @@ export const twoFactor = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     verified: boolean("verified").default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: timestamp("locked_until"),
   },
   (table) => [
     index("twoFactor_secret_idx").on(table.secret),
@@ -89,6 +93,8 @@ export const posts = pgTable(
   (table) => [
     index("posts_federationUrl_idx").on(table.federationUrl),
     index("posts_federationPostId_idx").on(table.federationPostId),
+    // Hand-written: Better Auth only allows unique indexes on required fields,
+    // and these two are optional. Re-add after `bun run db:generate`.
     // One copy of each remote post, even when it arrives twice at once.
     uniqueIndex("posts_federation_origin_uidx").on(table.federationUrl, table.federationPostId),
   ],
@@ -167,6 +173,7 @@ export const serverRegistry = pgTable(
     unhealthyReason: text("unhealthy_reason"),
   },
   (table) => [
+    // Hand-written: re-add after `bun run db:generate`.
     uniqueIndex("serverRegistry_publicKey_uidx").on(table.publicKey),
     uniqueIndex("serverRegistry_encryptionPublicKey_uidx").on(
       table.encryptionPublicKey,
@@ -216,10 +223,6 @@ export const userIdentityKeys = pgTable("user_identity_keys", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
-/**
- * Identity keys of remote authors, pinned the first time one of their posts
- * arrives. A later post signed with a different key is refused.
- */
 export const remoteIdentityKeys = pgTable(
   "remote_identity_keys",
   {
@@ -231,7 +234,10 @@ export const remoteIdentityKeys = pgTable(
     lastSeenAt: timestamp("last_seen_at").notNull(),
   },
   (table) => [
-    uniqueIndex("remoteIdentityKeys_origin_uidx").on(table.federationUrl, table.remoteUserId),
+    uniqueIndex("remoteIdentityKeys_origin_uidx").on(
+      table.federationUrl,
+      table.remoteUserId,
+    ),
   ],
 );
 
@@ -246,13 +252,17 @@ export const olmDeviceKeys = pgTable("olm_device_keys", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ one, many }) => ({
   accounts: many(account),
   twoFactors: many(twoFactor),
   postss: many(posts),
-  mutess: many(mutes),
-  blockss: many(blocks),
-  userIdentityKeys: many(userIdentityKeys),
+  mutessByUserId: many(mutes, { relationName: "mutes_userId" }),
+  mutessByMutedUserId: many(mutes, { relationName: "mutes_mutedUserId" }),
+  blockssByBlockerId: many(blocks, { relationName: "blocks_blockerId" }),
+  blockssByBlockedUserId: many(blocks, {
+    relationName: "blocks_blockedUserId",
+  }),
+  userIdentityKeys: one(userIdentityKeys),
   olmDeviceKeyss: many(olmDeviceKeys),
 }));
 
@@ -277,58 +287,54 @@ export const postsRelations = relations(posts, ({ one }) => ({
   }),
 }));
 
-export const followsFollowerServerUrlRelations = relations(
-  follows,
-  ({ one }) => ({
-    serverRegistry: one(serverRegistry, {
-      fields: [follows.followerServerUrl],
-      references: [serverRegistry.url],
-    }),
+export const followsRelations = relations(follows, ({ one }) => ({
+  followerServerUrl: one(serverRegistry, {
+    fields: [follows.followerServerUrl],
+    references: [serverRegistry.url],
+    relationName: "follows_followerServerUrl",
   }),
-);
-
-export const followsFollowingServerUrlRelations = relations(
-  follows,
-  ({ one }) => ({
-    serverRegistry: one(serverRegistry, {
-      fields: [follows.followingServerUrl],
-      references: [serverRegistry.url],
-    }),
+  followingServerUrl: one(serverRegistry, {
+    fields: [follows.followingServerUrl],
+    references: [serverRegistry.url],
+    relationName: "follows_followingServerUrl",
   }),
-);
+}));
 
-export const mutesUserIdRelations = relations(mutes, ({ one }) => ({
+export const mutesRelations = relations(mutes, ({ one }) => ({
   user: one(user, {
     fields: [mutes.userId],
     references: [user.id],
+    relationName: "mutes_userId",
   }),
-}));
-
-export const mutesMutedUserIdRelations = relations(mutes, ({ one }) => ({
-  user: one(user, {
+  mutedUser: one(user, {
     fields: [mutes.mutedUserId],
     references: [user.id],
+    relationName: "mutes_mutedUserId",
   }),
 }));
 
-export const blocksBlockerIdRelations = relations(blocks, ({ one }) => ({
-  user: one(user, {
+export const blocksRelations = relations(blocks, ({ one }) => ({
+  blocker: one(user, {
     fields: [blocks.blockerId],
     references: [user.id],
+    relationName: "blocks_blockerId",
   }),
-}));
-
-export const blocksBlockedUserIdRelations = relations(blocks, ({ one }) => ({
-  user: one(user, {
+  blockedUser: one(user, {
     fields: [blocks.blockedUserId],
     references: [user.id],
+    relationName: "blocks_blockedUserId",
   }),
 }));
 
 export const serverRegistryRelations = relations(
   serverRegistry,
   ({ many }) => ({
-    followss: many(follows),
+    followssByFollowerServerUrl: many(follows, {
+      relationName: "follows_followerServerUrl",
+    }),
+    followssByFollowingServerUrl: many(follows, {
+      relationName: "follows_followingServerUrl",
+    }),
   }),
 );
 

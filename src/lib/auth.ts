@@ -41,8 +41,10 @@ const bAuth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET!,
 	baseURL: process.env.BETTER_AUTH_URL ?? (isTest ? "http://localhost:3000" : undefined),
 	trustedOrigins,
-	experimental: {
-		joins: true
+	advanced: {
+		database: {
+			joins: true,
+		},
 	},
 	emailAndPassword: {
 		autoSignIn: false,
@@ -72,6 +74,20 @@ const bAuth = betterAuth({
 		},
 		set: async (key, value, ttl) => {
 			await getRedisClient().setex(key, ttl ?? 3600 * 24 * 7, JSON.stringify(value));
+		},
+		getAndDelete: async (key) => {
+			const value = await getRedisClient().getdel(key);
+			return value ? JSON.parse(value) : null;
+		},
+		// The TTL is set only when the counter is created, so the window does not slide.
+		increment: async (key, ttl) => {
+			const value = await getRedisClient().eval(
+				"local v = redis.call('INCR', KEYS[1]) if v == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return v",
+				1,
+				key,
+				ttl,
+			);
+			return Number(value);
 		},
 		delete: async (key) => {
 			await getRedisClient().del(key);
@@ -103,11 +119,10 @@ const bAuth = betterAuth({
 				index: false,
 			},
 			postPropagationPolicy: {
-				type: "string",
+				type: ["all", "followers", "none"],
 				defaultValue: "all",
 				required: false,
 				index: false,
-				enum: ["all", "followers", "none"] as const,
 			},
 		}
 	}

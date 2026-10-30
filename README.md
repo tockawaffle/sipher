@@ -232,7 +232,7 @@ bun run db:migrate
 
 Run `bun run db:push` after pulling schema changes. The federation code relies on two unique indexes, `posts_federation_origin_uidx` (one copy of each remote post) and `remoteIdentityKeys_origin_uidx` (one pinned key per remote author), and on the `remote_identity_keys` table.
 
-> ⚠️ Better Auth's plugin schema format cannot express composite unique indexes, so those two indexes are written by hand in `src/lib/db/schema/index.ts`. `bun run db:generate` rewrites that file; re-add them before pushing.
+> ⚠️ `remoteIdentityKeys_origin_uidx` is declared in the oven plugin schema, so `bun run db:generate` keeps it. Better Auth only allows unique indexes on required fields, so `posts_federation_origin_uidx` and the two `serverRegistry` key indexes are written by hand in `src/lib/db/schema/index.ts` (marked "Hand-written"). `bun run db:generate` rewrites that file; re-add them before pushing.
 
 ### Federation Keys
 
