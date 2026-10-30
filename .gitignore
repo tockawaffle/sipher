@@ -40,6 +40,7 @@ yarn-error.log*
 tests/docker/sipher-a.env
 tests/docker/sipher-b.env
 tests/docker/sipher-c.env
+tests/docker/sipher-d.env
 
 # vercel
 .vercel
@@ -55,3 +56,4 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+dump.rdb

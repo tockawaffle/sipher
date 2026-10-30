@@ -1,7 +1,7 @@
 /**
  * Generates unique Ed25519 + X25519 federation keypairs AND a random
  * BETTER_AUTH_SECRET for each Sipher instance, writing everything into
- * tests/docker/sipher-{a,b,c}.env (created from *.env.example if not yet present).
+ * tests/docker/sipher-{a,b,c,d}.env (created from *.env.example if not yet present).
  *
  * Usage:
  *   bun run docker:generate-keys
@@ -46,7 +46,7 @@ function injectSecrets(content: string, secrets: ReturnType<typeof generateSecre
 	return out;
 }
 
-const instances = ["a", "b", "c"] as const;
+const instances = ["a", "b", "c", "d"] as const;
 
 for (const id of instances) {
 	const examplePath = join(DOCKER_DIR, `sipher-${id}.env.example`);
