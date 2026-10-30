@@ -1,11 +1,11 @@
 import db from '@/lib/db';
-import { serverRegistry } from '@/lib/db/schema';
+import { blacklistedServers, serverRegistry } from '@/lib/db/schema';
 import { encryptPayload, getOwnSigningSecretKey, signMessage } from '@/lib/federation/keytools';
-import { markServerHealthy, markServerUnhealthy } from '@/lib/federation/registry';
+import { markServerHealthy, markServerRecovered, markServerUnhealthy } from '@/lib/federation/registry';
 import { EMERGENCY_SWEEP_TIMEOUT, getThreatPolicy } from '@/lib/federation/threat-model';
 import { assertSafeUrl, UrlGuardError } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, ne, notExists, notInArray } from 'drizzle-orm';
 
 const debug = createDebug('app:federation:fetch');
 
@@ -115,46 +115,52 @@ async function directFetch(url: string, opts: FederationFetchOptions): Promise<R
 // Proxy peer selection & emergency sweep
 // ---------------------------------------------------------------------------
 
-async function pickHealthyProxy(excludeUrl: string): Promise<typeof serverRegistry.$inferSelect | null> {
+type RegistryRow = typeof serverRegistry.$inferSelect;
+
+/** How many healthy peers one federationFetch call tries before giving up on proxying. */
+const MAX_PROXY_ATTEMPTS = 3;
+
+/** Excludes peers we blacklisted: they must never carry our traffic. */
+const notBlacklisted = notExists(
+	db.select({ id: blacklistedServers.id })
+		.from(blacklistedServers)
+		.where(eq(blacklistedServers.serverUrl, serverRegistry.url)),
+);
+
+async function pickHealthyProxies(excludeUrls: string[], limit: number): Promise<RegistryRow[]> {
 	const ownUrl = process.env.BETTER_AUTH_URL!;
-	const [peer] = await db.select()
+	return await db.select()
 		.from(serverRegistry)
 		.where(
 			and(
 				eq(serverRegistry.isHealthy, true),
-				ne(serverRegistry.url, excludeUrl),
-				ne(serverRegistry.url, ownUrl),
+				notInArray(serverRegistry.url, [...excludeUrls, ownUrl]),
+				notBlacklisted,
 			),
 		)
 		.orderBy(desc(serverRegistry.lastSeen))
-		.limit(1);
-
-	return peer ?? null;
+		.limit(limit);
 }
 
-async function emergencySweep(excludeUrl: string): Promise<typeof serverRegistry.$inferSelect | null> {
+async function emergencySweep(excludeUrls: string[]): Promise<RegistryRow | null> {
 	debug('emergency sweep: pinging all unhealthy servers');
 	const ownUrl = process.env.BETTER_AUTH_URL!;
 
-	const unhealthyServers = await db.select()
+	// Every unhealthy peer is pinged, whatever the reason it was marked: a
+	// censorship block can lift at any time and the ping is cheap.
+	const checkable = await db.select()
 		.from(serverRegistry)
 		.where(
 			and(
 				eq(serverRegistry.isHealthy, false),
-				ne(serverRegistry.url, excludeUrl),
-				ne(serverRegistry.url, ownUrl),
+				notInArray(serverRegistry.url, [...excludeUrls, ownUrl]),
+				notBlacklisted,
 			),
 		)
 		.orderBy(desc(serverRegistry.lastSeen));
 
-	const checkable = unhealthyServers.filter(s => {
-		if (!s.unhealthyReason) return true;
-		const policy = getThreatPolicy(s.unhealthyReason as FederationErrorCode);
-		return policy.directHealthCheckable;
-	});
-
 	if (checkable.length === 0) {
-		debug('emergency sweep: no direct-checkable servers');
+		debug('emergency sweep: no unhealthy servers to ping');
 		return null;
 	}
 
@@ -179,7 +185,7 @@ async function emergencySweep(excludeUrl: string): Promise<typeof serverRegistry
 		}),
 	);
 
-	const recovered: (typeof serverRegistry.$inferSelect)[] = [];
+	const recovered: RegistryRow[] = [];
 	for (const result of results) {
 		if (result.status === 'fulfilled') {
 			recovered.push(result.value);
@@ -204,11 +210,19 @@ async function emergencySweep(excludeUrl: string): Promise<typeof serverRegistry
 // Proxy routing
 // ---------------------------------------------------------------------------
 
+/** The proxy itself could not be reached, as opposed to the proxy failing to reach the target. */
+class ProxyUnreachableError extends Error {
+	constructor(public readonly failure: FederationError) {
+		super(`Proxy unreachable: ${failure.code} — ${failure.url}`);
+		this.name = 'ProxyUnreachableError';
+	}
+}
+
 async function attemptProxyRoute(
 	url: string,
 	opts: FederationFetchOptions,
 	targetServerUrl: string,
-	proxyPeer: typeof serverRegistry.$inferSelect,
+	proxyPeer: RegistryRow,
 ): Promise<FederationFetchResult> {
 	debug('proxy route: sending through %s → %s', proxyPeer.url, targetServerUrl);
 
@@ -242,16 +256,21 @@ async function attemptProxyRoute(
 		signature,
 	});
 
-	const proxyResponse = await fetch(proxyUrl, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Federation-Origin': process.env.BETTER_AUTH_URL!,
-			'Origin': process.env.BETTER_AUTH_URL!,
-		},
-		body: proxyBody,
-		signal: AbortSignal.timeout(opts.timeout ?? 15_000),
-	});
+	let proxyResponse: Response;
+	try {
+		proxyResponse = await fetch(proxyUrl, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Federation-Origin': process.env.BETTER_AUTH_URL!,
+				'Origin': process.env.BETTER_AUTH_URL!,
+			},
+			body: proxyBody,
+			signal: AbortSignal.timeout(opts.timeout ?? 15_000),
+		});
+	} catch (err) {
+		throw new ProxyUnreachableError(classifyError(err, proxyUrl));
+	}
 
 	if (!proxyResponse.ok) {
 		if (proxyResponse.status === 502) {
@@ -276,6 +295,12 @@ export async function federationFetch(
 	// Gate 0: direct fetch
 	try {
 		const response = await directFetch(url, opts);
+		if (!opts.skipHealthUpdate) {
+			// A direct success is the strongest signal that a block has lifted.
+			await markServerRecovered(serverUrl).catch(e =>
+				debug('failed to mark %s recovered: %O', serverUrl, e),
+			);
+		}
 		return { response, proxied: false };
 	} catch (err) {
 		if (!(err instanceof FederationError)) throw err;
@@ -292,20 +317,36 @@ export async function federationFetch(
 
 		// Gate 1: proxy fallback
 		if (opts.proxyFallback && policy.proxyEligible) {
-			let proxyPeer = await pickHealthyProxy(serverUrl);
+			const tried = [serverUrl];
 
-			// If no healthy proxy is found, we'll do an emergency sweep to find a new proxy.
-			if (!proxyPeer) {
-				proxyPeer = await emergencySweep(serverUrl);
+			const tryProxy = async (peer: RegistryRow): Promise<FederationFetchResult | null> => {
+				tried.push(peer.url);
+				try {
+					return await attemptProxyRoute(url, opts, serverUrl, peer);
+				} catch (proxyErr) {
+					debug('proxy route through %s failed: %O', peer.url, proxyErr);
+					// Only blame the proxy when we could not reach it. A proxy that
+					// answered but could not reach the target is still healthy.
+					if (proxyErr instanceof ProxyUnreachableError && !opts.skipHealthUpdate) {
+						await markServerUnhealthy(peer.url, proxyErr.failure.code).catch(e =>
+							debug('failed to mark proxy %s unhealthy: %O', peer.url, e),
+						);
+					}
+					return null;
+				}
+			};
+
+			for (const peer of await pickHealthyProxies(tried, MAX_PROXY_ATTEMPTS)) {
+				const result = await tryProxy(peer);
+				if (result) return result;
 			}
 
-			if (proxyPeer) {
-				try {
-					return await attemptProxyRoute(url, opts, serverUrl, proxyPeer);
-				} catch (proxyErr) {
-					debug('proxy route through %s failed: %O', proxyPeer.url, proxyErr);
-				}
-			} else {
+			// No healthy proxy worked. Ping the unhealthy ones in case a block lifted.
+			const recovered = await emergencySweep(tried);
+			if (recovered) {
+				const result = await tryProxy(recovered);
+				if (result) return result;
+			} else if (tried.length === 1) {
 				throw new Error("No healthy proxy found. Emergency sweep failed.");
 			}
 		}

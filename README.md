@@ -112,13 +112,18 @@ The proxy **never sees plaintext content**. It only knows "Server A is talking t
 A threat model (`threat-model.ts`) classifies network errors and determines whether proxy fallback is eligible:
 
 
-| Error            | Proxy-Eligible | Direct Health-Checkable |
-| ---------------- | -------------- | ----------------------- |
-| DNS_BLOCKED      | Yes            | No                      |
-| TLS_ERROR        | No             | Yes                     |
-| TIMEOUT          | No             | Yes                     |
-| CONN_REFUSED     | No             | Yes                     |
-| INVALID_RESPONSE | Yes            | No                      |
+| Error            | Proxy-Eligible |
+| ---------------- | -------------- |
+| DNS_BLOCKED      | Yes            |
+| TIMEOUT          | Yes            |
+| CONN_REFUSED     | Yes            |
+| CONN_RESET       | Yes            |
+| TLS_ERROR        | No             |
+| INVALID_RESPONSE | Yes            |
+
+A censor can poison DNS, drop packets or inject resets, and from the sender's side each looks like an outage, so every network failure except TLS goes to a proxy. Up to three healthy, non-blacklisted peers are tried in turn. A peer that cannot be reached is marked unhealthy, while one that answers but cannot reach the target is left alone. Any direct success marks a server healthy again, and health checks probe every unhealthy server whatever the reason.
+
+To check these behaviours on four local nodes, run `tests/support/run-censorship.sh` (needs Postgres and Redis).
 
 
 ### Background Jobs (BullMQ)

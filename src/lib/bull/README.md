@@ -226,10 +226,9 @@ The core processor for health-check jobs. Executed by the health-check worker.
 **Processing steps:**
 
 1. **Server lookup** — Queries the `serverRegistry` table. If the server is not found or is already marked healthy, the job exits early.
-2. **Threat-policy check** — If the server has an `unhealthyReason`, the corresponding threat policy is consulted via `getThreatPolicy()`. If the reason is not `directHealthCheckable`, the job skips further processing.
-3. **Probe** — Sends an HTTP `GET` to `<serverUrl>/discover` with an 8-second timeout.
-4. **Success** — If the response is OK, the server is marked healthy via `markServerHealthy()` and the job completes.
-5. **Failure** — On HTTP error or network exception, the attempt counter is atomically incremented in the database via `sql` fragment (`healthCheckAttempts + 1`), avoiding read-modify-write races between concurrent worker instances. If fewer than `MAX_HEALTH_CHECK_ATTEMPTS` (5) have been made, a follow-up health-check job is scheduled with exponential delay. Once exhausted, a warning is logged and no further checks are scheduled.
+2. **Probe** — Sends an HTTP `GET` to `<serverUrl>/discover` with an 8-second timeout.
+3. **Success** — If the response is OK, the server is marked healthy via `markServerHealthy()` and the job completes.
+4. **Failure** — On HTTP error or network exception, the attempt counter is atomically incremented in the database via `sql` fragment (`healthCheckAttempts + 1`), avoiding read-modify-write races between concurrent worker instances. If fewer than `MAX_HEALTH_CHECK_ATTEMPTS` (5) have been made, a follow-up health-check job is scheduled with exponential delay. Once exhausted, a warning is logged and no further checks are scheduled.
 
 **Returns:** `Promise<void>`
 
@@ -343,7 +342,6 @@ Jobs that throw a regular `Error` are returned to the queue and retried accordin
 
 | Scenario                       | Location             | Description                                                                |
 | ------------------------------ | -------------------- | -------------------------------------------------------------------------- |
-| Unhealthy reason not checkable | `processHealthCheck` | The server's threat policy forbids direct health checks.                   |
 | Server already healthy         | `processHealthCheck` | The server is already marked healthy in the registry.                      |
 | Server not in registry         | `processHealthCheck` | The server was removed or never registered.                                |
 | Unknown follow ack             | `handleFollowAck`    | The local `follows` table has no matching row for the acknowledged follow. |

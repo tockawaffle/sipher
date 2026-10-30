@@ -3,7 +3,7 @@ import { serverRegistry } from '@/lib/db/schema';
 import { FederationError, federationFetch, type FederationErrorCode } from '@/lib/federation/fetch';
 import { assertSafeUrl } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 const debug = createDebug('app:federation:registry');
 
@@ -55,6 +55,22 @@ export async function markServerHealthy(serverUrl: string): Promise<void> {
 		lastSeen: new Date(),
 		updatedAt: new Date(),
 	}).where(eq(serverRegistry.url, serverUrl));
+}
+
+/**
+ * Marks a server healthy only if it is currently unhealthy, so the common
+ * path (a healthy server answering) does not rewrite the row.
+ */
+export async function markServerRecovered(serverUrl: string): Promise<void> {
+	const recovered = await db.update(serverRegistry).set({
+		isHealthy: true,
+		unhealthyReason: null,
+		healthCheckAttempts: 0,
+		lastSeen: new Date(),
+		updatedAt: new Date(),
+	}).where(and(eq(serverRegistry.url, serverUrl), eq(serverRegistry.isHealthy, false)))
+		.returning({ url: serverRegistry.url });
+	if (recovered.length > 0) debug('server %s reachable again, marked healthy', serverUrl);
 }
 
 export class DiscoveryError extends Error {

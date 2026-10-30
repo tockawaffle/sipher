@@ -2,9 +2,8 @@
 
 import db from '@/lib/db';
 import { serverRegistry } from '@/lib/db/schema';
-import { FederationError, federationFetch, type FederationErrorCode } from '@/lib/federation/fetch';
+import { FederationError, federationFetch } from '@/lib/federation/fetch';
 import { markServerHealthy } from '@/lib/federation/registry';
-import { getThreatPolicy } from '@/lib/federation/threat-model';
 import type { Job } from 'bullmq';
 import createDebug from 'debug';
 import { eq, sql } from 'drizzle-orm';
@@ -30,14 +29,6 @@ export async function processHealthCheck(job: Job<HealthCheckJob>): Promise<void
 	if (server.isHealthy) {
 		debug('health-check: server %s is already healthy, skipping', serverUrl);
 		return;
-	}
-
-	if (server.unhealthyReason) {
-		const policy = getThreatPolicy(server.unhealthyReason as FederationErrorCode);
-		if (!policy.directHealthCheckable) {
-			debug('health-check: server %s has reason %s (not direct-checkable), skipping', serverUrl, server.unhealthyReason);
-			return;
-		}
 	}
 
 	debug('health-check: pinging %s', serverUrl);

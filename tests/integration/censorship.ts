@@ -376,9 +376,16 @@ scenario("S7", "Target C goes down, then comes back", async () => {
 		},
 	});
 	if (!restarted) await startNode("c");
-	if (r.delivered && r.proxies.length === 0) record("S7", "delivery retried until target is back (no pointless proxying)", "PASS", `delivered ${r.afterMs}ms after posting (C restarted at ~20s)`);
-	else if (r.delivered) record("S7", "delivery retried until target is back (no pointless proxying)", "INFO", `delivered after ${r.afterMs}ms but proxies were tried: ${r.proxies.join(",")}`);
-	else record("S7", "delivery retried until target is back (no pointless proxying)", "FAIL", `not delivered within 120s`);
+	// From A's side an outage looks like a censor's reset, so A may try proxies.
+	// They answer 502 (they cannot reach C either) and must stay healthy.
+	const blamed = [];
+	for (const p of ["b", "d"] as NodeId[]) {
+		const row = await registryRow("a", p);
+		if (row && !row.is_healthy) blamed.push(p);
+	}
+	if (r.delivered && blamed.length === 0) record("S7", "delivery retried until target is back, proxies not blamed", "PASS", `delivered ${r.afterMs}ms after posting (C restarted at ~20s); proxy attempts: ${r.proxies.length}`);
+	else if (r.delivered) record("S7", "delivery retried until target is back, proxies not blamed", "FAIL", `delivered, but A marked ${blamed.join(",")} unhealthy for C's outage`);
+	else record("S7", "delivery retried until target is back, proxies not blamed", "FAIL", `not delivered within 120s`);
 });
 
 scenario("S8", "Silent-drop censorship (requests to C hang)", async () => {
