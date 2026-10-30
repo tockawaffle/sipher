@@ -3,12 +3,17 @@
  */
 import db from "@/lib/db";
 import { follows, serverRegistry, user } from "@/lib/db/schema";
+import { posts, remoteIdentityKeys } from "@/lib/db/schema";
 import {
+	binary_to_base58,
 	decryptPayload,
 	encryptPayload,
 	signMessage,
 	verifySignature,
 } from "@/lib/federation/keytools";
+import { canonicalPostBytes } from "@/lib/identity/postSignature";
+import getRedisClient from "@/lib/redis";
+import nacl from "tweetnacl";
 import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import {
@@ -34,7 +39,11 @@ function recipientEncryptionPublicKey(): Uint8Array {
 
 async function resetRegistryAndSender() {
 	await db.delete(follows);
+	await db.delete(posts);
+	await db.delete(remoteIdentityKeys);
 	await clearTables();
+	// The 429 test fills this origin's /proxy budget; later tests need it back.
+	await getRedisClient().del(`rl:proxy:${SENDER_URL}`);
 	await seedServer(SENDER_URL, senderKeys.signingPublicKey, senderKeys.encryptionPublicKey);
 }
 
@@ -490,3 +499,115 @@ test("TARGETED PING returns pong with the same nonce", async ({ request }) => {
 // failover decision lives inside `federationFetch` on the sender side and only
 // triggers when the target is *genuinely* unreachable for the sender but reachable
 // via a real proxy peer.
+
+/**
+ * Builds a TARGETED FEDERATE_POST from SENDER_URL, signed by `author`.
+ * `signer` defaults to the author; pass another key pair to forge the signature.
+ */
+function buildPostTargetedEnvelope(
+	authorId: string,
+	author: nacl.SignKeyPair,
+	opts: { signer?: nacl.SignKeyPair; federationUrl?: string } = {},
+) {
+	const federationUrl = opts.federationUrl ?? SENDER_URL;
+	const post = {
+		id: crypto.randomUUID(),
+		content: [{ type: "text" as const, value: "hello from a remote author" }],
+		authorId,
+		published: new Date().toISOString(),
+		isPrivate: false,
+	};
+	const authorSignature = Buffer.from(
+		nacl.sign.detached(
+			canonicalPostBytes({
+				postId: post.id,
+				authorId,
+				publishedAt: post.published,
+				content: post.content,
+				federationUrl,
+			}),
+			(opts.signer ?? author).secretKey,
+		),
+	).toString("base64");
+	const innerRaw = JSON.stringify({
+		post: { ...post, authorSignature, authorSigningPublicKey: binary_to_base58(author.publicKey) },
+		federationUrl,
+		method: "FEDERATE_POST",
+		sentAt: new Date().toISOString(),
+	});
+	const senderSigningSecret = new Uint8Array(Buffer.from(senderKeys.signingSecretKey, "base64"));
+	const targetApi = `${origin()}/api/auth/social/posts`;
+	const wire = JSON.stringify({
+		targetUrl: targetApi,
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Federation-Origin": SENDER_URL,
+			"X-Federation-Target": targetApi,
+			"Origin": SENDER_URL,
+		},
+		body: JSON.stringify({
+			method: "FEDERATE_POST",
+			payload: encryptPayload(innerRaw, recipientEncryptionPublicKey()),
+			signature: signMessage(innerRaw, senderSigningSecret),
+		}),
+	});
+	return { outerEnv: encryptPayload(wire, recipientEncryptionPublicKey()), postId: post.id };
+}
+
+async function sendTargeted(request: import("@playwright/test").APIRequestContext, payload: unknown) {
+	return request.post("/proxy", {
+		headers: { "X-Federation-Origin": SENDER_URL },
+		data: { method: "TARGETED", payload },
+	});
+}
+
+test("TARGETED FEDERATE_POST stores the post and pins the author's key", async ({ request }) => {
+	const authorId = crypto.randomUUID();
+	const author = nacl.sign.keyPair();
+	const { outerEnv, postId } = buildPostTargetedEnvelope(authorId, author);
+
+	const res = await sendTargeted(request, outerEnv);
+	expect(res.status()).toBe(200);
+
+	const stored = await db.select().from(posts).where(eq(posts.federationPostId, postId));
+	expect(stored).toHaveLength(1);
+	const [pin] = await db.select().from(remoteIdentityKeys).where(eq(remoteIdentityKeys.remoteUserId, authorId));
+	expect(pin.federationUrl).toBe(SENDER_URL);
+	expect(pin.signingPublicKey).toBe(binary_to_base58(author.publicKey));
+});
+
+test("TARGETED FEDERATE_POST rejects a post the author did not sign", async ({ request }) => {
+	const author = nacl.sign.keyPair();
+	const { outerEnv, postId } = buildPostTargetedEnvelope(crypto.randomUUID(), author, {
+		signer: nacl.sign.keyPair(),
+	});
+
+	const res = await sendTargeted(request, outerEnv);
+	expect(res.status()).toBe(403);
+	expect((await res.json()).code).toBe("INVALID_AUTHOR_SIGNATURE");
+	expect(await db.select().from(posts).where(eq(posts.federationPostId, postId))).toHaveLength(0);
+});
+
+test("TARGETED FEDERATE_POST rejects a known author signing with a new key", async ({ request }) => {
+	const authorId = crypto.randomUUID();
+	const first = buildPostTargetedEnvelope(authorId, nacl.sign.keyPair());
+	expect((await sendTargeted(request, first.outerEnv)).status()).toBe(200);
+
+	// The sending server swaps in a key of its own and signs a post as the same author.
+	const forged = buildPostTargetedEnvelope(authorId, nacl.sign.keyPair());
+	const res = await sendTargeted(request, forged.outerEnv);
+	expect(res.status()).toBe(409);
+	expect((await res.json()).code).toBe("AUTHOR_KEY_MISMATCH");
+	expect(await db.select().from(posts).where(eq(posts.federationPostId, forged.postId))).toHaveLength(0);
+});
+
+test("TARGETED FEDERATE_POST rejects a post claiming another server as its origin", async ({ request }) => {
+	const { outerEnv } = buildPostTargetedEnvelope(crypto.randomUUID(), nacl.sign.keyPair(), {
+		federationUrl: "https://someone-else.test",
+	});
+
+	const res = await sendTargeted(request, outerEnv);
+	expect(res.status()).toBe(403);
+	expect((await res.json()).code).toBe("FEDERATION_URL_MISMATCH");
+});

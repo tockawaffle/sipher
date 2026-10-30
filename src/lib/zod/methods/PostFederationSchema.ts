@@ -13,6 +13,8 @@ const PostInnerPayloadSchema = z.object({
 		isPrivate: z.boolean(),
 		/** The author's own Ed25519 signature over the post (see canonicalPostBytes). */
 		authorSignature: z.string().min(1),
+		/** The author's base58 Ed25519 identity key, which receivers pin per author. */
+		authorSigningPublicKey: z.string().min(1),
 	}),
 	federationUrl: z.string(),
 	method: z.literal("FEDERATE_POST"),

@@ -21,7 +21,7 @@ SiPher is an **API-only** server: a single Bun process running [Elysia](https://
 
 | Layer          | Technology                                                                            |
 | -------------- | ------------------------------------------------------------------------------------- |
-| Framework      | Elysia on Bun (`src/app.ts`), OpenAPI docs at `/openapi`                              |
+| Framework      | Elysia on Bun (`src/app.ts`), OpenAPI docs at `/openapi` (incl. Better Auth routes)   |
 | Authentication | [Better Auth](https://better-auth.com) — email/password, username, 2FA, bearer tokens |
 | Database       | PostgreSQL via [Drizzle ORM](https://orm.drizzle.team)                                |
 | Cache / Queues | Redis — session storage, rate limiting, BullMQ background jobs                        |
@@ -400,7 +400,7 @@ Post content is encrypted in transit between servers (X25519 key agreement + HKD
 
 All social actions are signed by the user's Ed25519 identity key before submission:
 
-- **Posts** — The `authorSignature` field contains a detached Ed25519 signature covering the canonical post payload (`postId`, `authorId`, `publishedAt`, `content`, `federationUrl`). Verified server-side before storage.
+- **Posts** — The `authorSignature` field contains a detached Ed25519 signature covering the canonical post payload (`postId`, `authorId`, `publishedAt`, `content`, `federationUrl`). The author's server verifies it before storage, and every receiving server verifies it again against the author's identity key, which travels with the post. Receivers pin that key per author (`remote_identity_keys`) on the first post and refuse later posts signed with another key (`409 AUTHOR_KEY_MISMATCH`), so a server cannot forge posts for its own users by swapping keys. A post must also come from the server named in its `federationUrl`. There is no rotation flow for user identity keys yet; a user who resets their identity will be refused by servers that pinned the old key.
 - **Follows** — Follow requests and responses carry detached Ed25519 signatures (`requesterSignature`, `responderSignature`) covering a canonical payload that includes `federationUrl` to prevent cross-server replay.
 
 ---

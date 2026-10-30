@@ -79,6 +79,20 @@ export const sipherOven = () => {
 				},
 			},
 			/**
+			 * Identity keys of remote authors, pinned on their first federated
+			 * post. Keyed by (federationUrl, remoteUserId); the unique index on
+			 * that pair lives in `src/lib/db/schema/index.ts`.
+			 */
+			remoteIdentityKeys: {
+				fields: {
+					federationUrl: { type: "string", required: true },
+					remoteUserId: { type: "string", required: true },
+					signingPublicKey: { type: "string", required: true },
+					firstSeenAt: { type: "date", required: true },
+					lastSeenAt: { type: "date", required: true },
+				},
+			},
+			/**
 			 * Per-device OLM key bundle. One row per device, single JSON blob
 			 * holding `{ device_keys, one_time_keys, fallback_keys }` exactly
 			 * as published by the OlmMachine. Incremental OTK uploads merge

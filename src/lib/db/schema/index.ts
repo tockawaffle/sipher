@@ -216,6 +216,25 @@ export const userIdentityKeys = pgTable("user_identity_keys", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
+/**
+ * Identity keys of remote authors, pinned the first time one of their posts
+ * arrives. A later post signed with a different key is refused.
+ */
+export const remoteIdentityKeys = pgTable(
+  "remote_identity_keys",
+  {
+    id: text("id").primaryKey(),
+    federationUrl: text("federation_url").notNull(),
+    remoteUserId: text("remote_user_id").notNull(),
+    signingPublicKey: text("signing_public_key").notNull(),
+    firstSeenAt: timestamp("first_seen_at").notNull(),
+    lastSeenAt: timestamp("last_seen_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("remoteIdentityKeys_origin_uidx").on(table.federationUrl, table.remoteUserId),
+  ],
+);
+
 export const olmDeviceKeys = pgTable("olm_device_keys", {
   id: text("id").primaryKey(),
   userId: text("user_id")

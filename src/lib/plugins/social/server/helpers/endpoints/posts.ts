@@ -193,9 +193,11 @@ export const createPost = createAuthEndpoint("/social/posts", {
 					id: postId,
 					content,
 					authorId: user.user.id,
-					published: published.toISOString(),
+					// The exact string the author signed, so receivers can rebuild the canonical bytes.
+					published: publishedAt,
 					isPrivate,
 					authorSignature: signature,
+					authorSigningPublicKey: identity.signingPublicKey,
 				},
 			});
 
