@@ -4,6 +4,7 @@ import { Elysia } from 'elysia'
 import { auth } from './lib/auth'
 import { blacklistGuard } from './lib/http/blacklist-guard'
 import { rateLimitGuard } from './lib/http/rate-limit-guard'
+import { authDocumentation } from './lib/openapi'
 import { realtime } from './lib/realtime'
 import { POST as relayDiscover } from './routes/dev/relay-discover'
 import { GET as discoverGet, POST as discoverPost } from './routes/discover'
@@ -37,7 +38,15 @@ export function createApp() {
 				allowedHeaders: ['Content-Type', 'Authorization', 'X-Federation-Origin'],
 			}),
 		)
-		.use(openapi({ path: '/openapi' }))
+		.use(
+			openapi({
+				path: '/openapi',
+				documentation: {
+					components: authDocumentation.components,
+					paths: authDocumentation.paths,
+				},
+			}),
+		)
 		.mount(auth.handler)
 		.use(realtime)
 		.get('/', () => ({ name: 'sipher', status: 'ok' }))
