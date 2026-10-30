@@ -119,7 +119,7 @@ A threat model (`threat-model.ts`) classifies network errors and determines whet
 | CONN_REFUSED     | Yes            |
 | CONN_RESET       | Yes            |
 | TLS_ERROR        | No             |
-| INVALID_RESPONSE | Yes            |
+| INVALID_RESPONSE_FROM_TARGET | Yes |
 
 A censor can poison DNS, drop packets or inject resets, and from the sender's side each looks like an outage, so every network failure except TLS goes to a proxy. Up to three healthy, non-blacklisted peers are tried in turn. A peer that cannot be reached is marked unhealthy, while one that answers but cannot reach the target is left alone. Any direct success marks a server healthy again, and health checks probe every unhealthy server whatever the reason.
 
@@ -155,6 +155,7 @@ Failed confirmations do **not** auto-blacklist the server — preventing griefin
 ### Prerequisites
 
 - [Bun](https://bun.sh/) 1.3+ (runtime, tooling and key generation)
+- [Node.js](https://nodejs.org/) only for `bun run build:matrix`, whose download script runs with `node`
 - [PostgreSQL](https://www.postgresql.org/) 15+
 - [Redis](https://redis.io/) 7+
 - (Optional) [MinIO](https://min.io/) or any S3-compatible object store for media
@@ -370,7 +371,7 @@ These test the `/discover` REGISTER and DISCOVER handshake with real encrypted e
 - **[ ] Discovery propagation** — When a new server is registered, propagate its existence to all known peers.
 - **[ ] Server trust scoring** — A public vouch ledger so servers can signal trustworthiness about peers.
 - **[ ] End-to-end encryption** — OLM device keys are already uploaded. The encrypted message transport ("Oven") needs to be wired into the messaging layer.
-- **[ ] Web UI** — The frontend is minimal (dev test form and auth pages). A proper feed, profile pages, notifications, and settings UI need to be built.
+- **[ ] Clients** — SiPher ships no UI. Clients (feed, profiles, notifications, settings) are external consumers of the API, built on `src/sdk`.
 - **[ ] Federation status dashboard** — View connected peers, health status, pending deliveries, and rotation logs.
 
 ---
@@ -411,8 +412,8 @@ SiPher implements custom federation and cryptographic protocols. I am not a prof
 ### What SiPher does for safety
 
 - **SSRF protection**: A URL guard (`url-guard.ts`) blocks private, loopback, link-local, CGNAT, multicast and reserved IPv4 ranges, IPv6 ULA, link-local and NAT64 addresses, IPv4-mapped IPv6 forms of all of these, blocked hostnames (localhost, metadata endpoints), and non-HTTP(S) protocols. Before each federation request the hostname is resolved and refused if any address is internal, and redirects are not followed. Only overridable via `DEV_ALLOWED_HOSTNAMES`. The DNS check and the request resolve separately, so DNS rebinding is not fully covered.
-- **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and repeated deliveries inside that window are idempotent.
-- **Federation encryption**: All cross-server payloads are encrypted with X25519 + AES-256-GCM (hybrid ECIES). Ephemeral keys per message.
+- **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and a post delivered twice inside that window is stored once. A repeated follow is acknowledged without a second row (direct path) or refused with `409 FOLLOW_ALREADY_EXISTS` (proxy path).
+- **Federation encryption**: Posts, follows and proxy envelopes are encrypted with X25519 + AES-256-GCM (hybrid ECIES), with ephemeral keys per message. Discovery (`GET /discover`, `REGISTER`) is plain JSON, since it only carries public keys.
 - **Canonical signatures**: Posts and follows are signed with a versioned byte format (`v: 2`) that includes the federation URL to prevent cross-server replay attacks.
 - **Key rotation requires 4 proofs**: Possession of both old and new keypairs must be proven before keys are updated. Failed confirmations don't auto-blacklist (prevents griefing).
 - **No secret key on server**: User Ed25519 secret keys never leave the browser. The server only stores public keys and OLM device key bundles.

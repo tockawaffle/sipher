@@ -322,6 +322,20 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				return context.json({ error: "Unable to follow this user." }, { status: 403 });
 			}
 
+			// A retried delivery must not create a second row for the same follow.
+			const [alreadyFollowing] = await db
+				.select({ accepted: follows.accepted })
+				.from(follows)
+				.where(and(
+					eq(follows.followerId, following.followerId),
+					eq(follows.followingId, following.followingId),
+				))
+				.limit(1);
+
+			if (alreadyFollowing) {
+				return context.json({ status: "acknowledged", accepted: alreadyFollowing.accepted }, { status: 200 });
+			}
+
 			const accepted = !targetUser.isPrivate;
 
 			await db.insert(follows).values({

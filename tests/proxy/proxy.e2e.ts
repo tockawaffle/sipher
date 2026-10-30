@@ -391,6 +391,8 @@ test("TARGETED FEDERATE_FOLLOW inserts follow and returns PROXY_RESPONSE", async
 			new Uint8Array(Buffer.from(process.env.FEDERATION_PUBLIC_KEY!, "base64")),
 		),
 	).toBe(true);
+	// The sender parses the ack with FollowEnvelopeSchema, which requires a fresh sentAt.
+	expect(Date.now() - Date.parse(JSON.parse(ackPlain).sentAt)).toBeLessThan(60_000);
 
 	const innerAck = JSON.parse(ackPlain) as {
 		following: { followerId: string; followingId: string };

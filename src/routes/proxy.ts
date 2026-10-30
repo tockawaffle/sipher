@@ -443,6 +443,8 @@ export async function POST(request: Request) {
 							},
 							federationUrl: senderUrl,
 							method: "FEDERATE" as const,
+							// The sender parses this ack with FollowEnvelopeSchema, which requires a fresh sentAt.
+							sentAt: new Date().toISOString(),
 						});
 						const signature = signMessage(innerPayload, getOwnSigningSecretKey());
 

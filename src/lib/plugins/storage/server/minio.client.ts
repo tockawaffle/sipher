@@ -16,9 +16,9 @@ const minioClient = new Minio.Client({
 	useSSL: MINIO_USE_SSL_ENV === "true",
 	accessKey: MINIO_ACCESS_KEY_ENV,
 	secretKey: MINIO_SECRET_KEY_ENV,
-	// Signing URLs needs the bucket region. Setting it avoids a network
-	// round trip to look it up on every presign. MinIO defaults to us-east-1.
-	region: process.env.MINIO_REGION || "us-east-1",
+	// Signing URLs needs the bucket region. Setting it skips a network round
+	// trip per presign; left unset, the client looks it up.
+	region: process.env.MINIO_REGION || undefined,
 })
 
 export default minioClient;

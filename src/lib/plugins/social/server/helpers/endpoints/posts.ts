@@ -249,7 +249,7 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 	method: "POST",
 	body: z.object({
 		fileName: z.string().min(1),
-		mimeType: z.string().refine((v) => v in MIME_EXTENSIONS, {
+		mimeType: z.string().refine((v) => Object.hasOwn(MIME_EXTENSIONS, v), {
 			message: "Unsupported file type",
 		}),
 		size: z.number().positive(),
