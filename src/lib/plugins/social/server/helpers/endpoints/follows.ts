@@ -61,7 +61,7 @@ export const followUser = createAuthEndpoint("/social/follows", {
 							schema: {
 								type: "object",
 								properties: {
-									following: { type: "object", description: "INSERT: the stored follow row" },
+									following: { type: "array", items: { type: "object" }, description: "INSERT: the stored follow row (one-element array)" },
 									follow: { type: "object", description: "RESPOND: the updated follow row" },
 									status: { type: "string", enum: ["acknowledged"], description: "FEDERATE: delivery acknowledged" },
 									accepted: { type: "boolean", description: "FEDERATE: whether the follow was accepted right away" },
