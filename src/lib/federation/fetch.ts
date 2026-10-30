@@ -3,7 +3,7 @@ import { blacklistedServers, serverRegistry } from '@/lib/db/schema';
 import { encryptPayload, getOwnSigningSecretKey, signMessage } from '@/lib/federation/keytools';
 import { markServerHealthy, markServerRecovered, markServerUnhealthy } from '@/lib/federation/registry';
 import { EMERGENCY_SWEEP_TIMEOUT, getThreatPolicy } from '@/lib/federation/threat-model';
-import { assertSafeUrl, UrlGuardError } from '@/lib/federation/url-guard';
+import { assertSafeAddress, UrlGuardError } from '@/lib/federation/url-guard';
 import createDebug from 'debug';
 import { and, desc, eq, ne, notExists, notInArray } from 'drizzle-orm';
 
@@ -91,7 +91,22 @@ function classifyError(err: unknown, url: string): FederationError {
 	return new FederationError('UNKNOWN', url);
 }
 
+/**
+ * Refuses internal addresses (UrlGuardError). A failed DNS lookup is a
+ * FederationError like any other network failure, so it can go to a proxy.
+ */
+async function guardAddress(url: string): Promise<void> {
+	try {
+		await assertSafeAddress(url);
+	} catch (err) {
+		if (err instanceof UrlGuardError) throw err;
+		throw classifyError(err, url);
+	}
+}
+
 async function directFetch(url: string, opts: FederationFetchOptions): Promise<Response> {
+	await guardAddress(url);
+
 	const controller = new AbortController();
 	const timeout = opts.timeout ?? 10_000;
 	const timer = setTimeout(() => controller.abort(), timeout);
@@ -102,6 +117,8 @@ async function directFetch(url: string, opts: FederationFetchOptions): Promise<R
 			headers: opts.headers,
 			body: opts.body,
 			signal: controller.signal,
+			// A redirect could point at an internal address the guard never saw.
+			redirect: 'manual',
 		});
 		clearTimeout(timer);
 		return response;
@@ -169,16 +186,16 @@ async function emergencySweep(excludeUrls: string[]): Promise<RegistryRow | null
 	const results = await Promise.allSettled(
 		checkable.map(async (server) => {
 			try {
-				assertSafeUrl(server.url);
+				await guardAddress(server.url);
 			} catch (err) {
 				if (err instanceof UrlGuardError) {
 					debug('emergency sweep: skipping %s — blocked URL: %s', server.url, err.message);
-					throw err;
 				}
 				throw err;
 			}
 			const res = await fetch(server.url + '/discover', {
 				signal: AbortSignal.timeout(EMERGENCY_SWEEP_TIMEOUT),
+				redirect: 'manual',
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			return server;
@@ -258,6 +275,10 @@ async function attemptProxyRoute(
 
 	let proxyResponse: Response;
 	try {
+		await guardAddress(proxyUrl).catch(err => {
+			if (err instanceof UrlGuardError) throw new ProxyUnreachableError(new FederationError('UNKNOWN', proxyUrl));
+			throw err;
+		});
 		proxyResponse = await fetch(proxyUrl, {
 			method: 'POST',
 			headers: {
@@ -267,9 +288,11 @@ async function attemptProxyRoute(
 			},
 			body: proxyBody,
 			signal: AbortSignal.timeout(opts.timeout ?? 15_000),
+			redirect: 'manual',
 		});
 	} catch (err) {
-		throw new ProxyUnreachableError(classifyError(err, proxyUrl));
+		if (err instanceof ProxyUnreachableError) throw err;
+		throw new ProxyUnreachableError(err instanceof FederationError ? err : classifyError(err, proxyUrl));
 	}
 
 	if (!proxyResponse.ok) {
