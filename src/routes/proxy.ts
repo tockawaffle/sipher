@@ -10,7 +10,7 @@ import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
 import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
 import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
 import createDebug from "debug";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 const debug = createDebug("app:api:federation:proxy");
@@ -393,10 +393,14 @@ export async function POST(request: Request) {
 							return { error: "The user you are trying to follow does not exist.", code: "USER_NOT_FOUND", status: 404 };
 						}
 
-						// Second check if the follow already exists
+						// Second check if the follow already exists. User ids are only
+						// unique per server, so match the follower's server too.
+						const followerServerUrl = peerRegistryUrlOrNull(senderUrl);
 						const [existingFollow] = await tx.select().from(follows).where(and(
 							eq(follows.followerId, followEnv.following.followerId),
 							eq(follows.followingId, followEnv.following.followingId),
+							followerServerUrl ? eq(follows.followerServerUrl, followerServerUrl) : isNull(follows.followerServerUrl),
+							isNull(follows.followingServerUrl),
 						));
 
 						if (existingFollow) {
@@ -424,7 +428,7 @@ export async function POST(request: Request) {
 							followingId: followEnv.following.followingId,
 							accepted: isPrivate,
 							createdAt: new Date(),
-							followerServerUrl: peerRegistryUrlOrNull(senderUrl),
+							followerServerUrl,
 							followingServerUrl: peerRegistryUrlOrNull(targetUrl),
 							acknowledged: true,
 						}).returning();

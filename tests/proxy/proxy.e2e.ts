@@ -438,6 +438,32 @@ test("TARGETED duplicate FEDERATE_FOLLOW returns 409", async ({ request }) => {
 	expect(await r2.json()).toMatchObject({ code: "FOLLOW_ALREADY_EXISTS" });
 });
 
+test("TARGETED FEDERATE_FOLLOW is not a duplicate of the same ids from another server", async ({ request }) => {
+	const followerId = crypto.randomUUID();
+	const followingId = crypto.randomUUID();
+	await seedMinimalUser({ id: followingId, email: `${followingId}@proxy-test.invalid` });
+
+	// User ids are only unique per server: another peer already has a user with this id following ours.
+	const otherServer = "https://other-peer.test";
+	const otherKeys = generateEnvKeyPair();
+	await seedServer(otherServer, otherKeys.signingPublicKey, otherKeys.encryptionPublicKey);
+	await db.insert(follows).values({
+		id: crypto.randomUUID(),
+		followerId,
+		followingId,
+		accepted: true,
+		createdAt: new Date(),
+		followerServerUrl: otherServer,
+	});
+
+	const res = await request.post("/proxy", {
+		headers: { "X-Federation-Origin": SENDER_URL },
+		data: { method: "TARGETED", payload: buildFollowTargetedEnvelope(followerId, followingId) },
+	});
+	expect(res.status()).toBe(200);
+	expect(await db.select().from(follows).where(eq(follows.followingId, followingId))).toHaveLength(2);
+});
+
 test("rate limits proxy requests per X-Federation-Origin (429)", async ({ request }) => {
 	const stranger = generateEnvKeyPair();
 	let saw429 = false;

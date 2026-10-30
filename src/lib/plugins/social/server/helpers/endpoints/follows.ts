@@ -8,7 +8,7 @@ import { canonicalFollowRequestBytes, canonicalFollowResponseBytes } from "@/lib
 import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import nacl from "tweetnacl";
 import { z } from "zod";
 
@@ -323,12 +323,17 @@ export const followUser = createAuthEndpoint("/social/follows", {
 			}
 
 			// A retried delivery must not create a second row for the same follow.
+			// User ids are only unique per server, so match the follower's server
+			// too, and only follows of a local user.
+			const followerServerUrl = peerRegistryUrlOrNull(server.url);
 			const [alreadyFollowing] = await db
 				.select({ accepted: follows.accepted })
 				.from(follows)
 				.where(and(
 					eq(follows.followerId, following.followerId),
 					eq(follows.followingId, following.followingId),
+					followerServerUrl ? eq(follows.followerServerUrl, followerServerUrl) : isNull(follows.followerServerUrl),
+					isNull(follows.followingServerUrl),
 				))
 				.limit(1);
 
@@ -345,7 +350,7 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				accepted,
 				createdAt: new Date(),
 				// A user on server.url follows a local user.
-				followerServerUrl: peerRegistryUrlOrNull(server.url),
+				followerServerUrl,
 			}).onConflictDoNothing();
 
 			return context.json({ status: "acknowledged", accepted }, { status: 200 });
