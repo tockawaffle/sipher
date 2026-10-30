@@ -225,10 +225,14 @@ The schema is managed via Drizzle Kit. Everything is auto-generated from Better 
 # Push schema directly (development)
 bun run db:push
 
-# Or generate a migration and apply it
+# Regenerate src/lib/db/schema/index.ts from the Better Auth plugin schemas
 bun run db:generate
 bun run db:migrate
 ```
+
+Run `bun run db:push` after pulling schema changes. The federation code relies on two unique indexes, `posts_federation_origin_uidx` (one copy of each remote post) and `remoteIdentityKeys_origin_uidx` (one pinned key per remote author), and on the `remote_identity_keys` table.
+
+> ⚠️ Better Auth's plugin schema format cannot express composite unique indexes, so those two indexes are written by hand in `src/lib/db/schema/index.ts`. `bun run db:generate` rewrites that file; re-add them before pushing.
 
 ### Federation Keys
 
@@ -348,11 +352,21 @@ docker compose -f tests/docker-compose.yml run --rm test-runner \
 
 These test the `/discover` REGISTER and DISCOVER handshake with real encrypted envelopes, the Post → BullMQ delivery → proxy fallback pipeline, and the full PROXY/TARGETED relay chain respectively.
 
+### Censorship matrix
+
+`tests/support/run-censorship.sh` runs four local nodes without Docker and a `fetch` preload (`tests/support/netsim.ts`) that simulates DNS poisoning, refused or reset connections, silent drops and lost responses. It checks that posts still arrive through proxies, that dead or blacklisted proxies are skipped, that queued posts survive isolation, and that a duplicate delivery is stored once.
+
+```sh
+PGURL=postgresql://postgres@localhost:5432 tests/support/run-censorship.sh [--only S2,S3]
+```
+
+It needs a local Postgres superuser and Redis on `:6379`, and it recreates the databases `sipher_a` to `sipher_d`.
+
 ### Test coverage
 
 - **Discover e2e** — SSRF guards, key mismatch rejection, REGISTER and DISCOVER happy paths, encrypted envelope validation.
 - **Key rotation e2e** — Full init → solve → confirm flow, rate limiting, expired challenges, exhausted attempts without blacklist-griefing.
-- **Proxy e2e** — PROXY and TARGETED validation, unknown sender rejection, blacklist enforcement, signature verification, duplicate follow rejection, rate limiting, payload size limits.
+- **Proxy e2e** — PROXY and TARGETED validation, unknown sender rejection, blacklist enforcement, signature verification, replay window, duplicate follow rejection (scoped per follower server), author signature and key pinning on federated posts, rate limiting, payload size limits.
 - **Keytools unit** — Encryption round-trip, tamper detection, signature verification, deterministic fingerprinting.
 - **Integration (docker)** — Post delivery via proxy fallback, full proxy chain relay, discover round-trips.
 
@@ -368,6 +382,7 @@ These test the `/discover` REGISTER and DISCOVER handshake with real encrypted e
 - **[X] Client-side identity** — BIP-39 mnemonics, Ed25519 keypairs, encrypted IndexedDB storage, session key cache.
 - **[X] Rate limiting** — Per-route and per-origin sliding-window rate limits enforced server-side.
 - **[X] Threat model** — Error-code classification dictating proxy eligibility and health-check strategy.
+- **[ ] User identity key rotation** — Rotate a user's identity key with a statement signed by the current key, so servers that pinned it accept the new one. A user who loses their mnemonic needs a separate, visible identity reset.
 - **[ ] Discovery propagation** — When a new server is registered, propagate its existence to all known peers.
 - **[ ] Server trust scoring** — A public vouch ledger so servers can signal trustworthiness about peers.
 - **[ ] End-to-end encryption** — OLM device keys are already uploaded. The encrypted message transport ("Oven") needs to be wired into the messaging layer.
@@ -412,9 +427,10 @@ SiPher implements custom federation and cryptographic protocols. I am not a prof
 ### What SiPher does for safety
 
 - **SSRF protection**: A URL guard (`url-guard.ts`) blocks private, loopback, link-local, CGNAT, multicast and reserved IPv4 ranges, IPv6 ULA, link-local and NAT64 addresses, IPv4-mapped IPv6 forms of all of these, blocked hostnames (localhost, metadata endpoints), and non-HTTP(S) protocols. Before each federation request the hostname is resolved and refused if any address is internal, and redirects are not followed. Only overridable via `DEV_ALLOWED_HOSTNAMES`. The DNS check and the request resolve separately, so DNS rebinding is not fully covered.
-- **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and a post delivered twice inside that window is stored once. A repeated follow is acknowledged without a second row (direct path) or refused with `409 FOLLOW_ALREADY_EXISTS` (proxy path).
+- **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and a post delivered twice inside that window is stored once. A repeated follow from the same server is acknowledged without a second row (direct path) or refused with `409 FOLLOW_ALREADY_EXISTS` (proxy path). User ids are only unique per server, so the same ids from another server are a different follow.
 - **Federation encryption**: Posts, follows and proxy envelopes are encrypted with X25519 + AES-256-GCM (hybrid ECIES), with ephemeral keys per message. Discovery (`GET /discover`, `REGISTER`) is plain JSON, since it only carries public keys.
 - **Canonical signatures**: Posts and follows are signed with a versioned byte format (`v: 2`) that includes the federation URL to prevent cross-server replay attacks.
+- **Author key pinning**: Receivers verify each federated post's author signature and pin the author's identity key on first sight (see [Client-side signing](#client-side-signing)), so a server cannot forge posts for its users by swapping keys. A post must come from the server named in its `federationUrl`.
 - **Key rotation requires 4 proofs**: Possession of both old and new keypairs must be proven before keys are updated. Failed confirmations don't auto-blacklist (prevents griefing).
 - **No secret key on server**: User Ed25519 secret keys never leave the browser. The server only stores public keys and OLM device key bundles.
 - **Session-scoped key caching**: The signing key lives in module memory + sessionStorage (not localStorage). It is zeroed on logout and cleared when the tab closes.
