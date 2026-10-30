@@ -9,6 +9,7 @@ import { POST as relayDiscover } from './routes/dev/relay-discover'
 import { GET as discoverGet, POST as discoverPost } from './routes/discover'
 import { POST as rotateConfirm } from './routes/discover/rotate/confirm'
 import { POST as rotateInit } from './routes/discover/rotate/init'
+import { GET as mediaGet } from './routes/media'
 import { POST as proxyPost } from './routes/proxy'
 
 /**
@@ -46,6 +47,7 @@ export function createApp() {
 		.post('/discover/rotate/confirm', ({ request }) => rotateConfirm(request), { parse: 'none' })
 		.post('/proxy', ({ request }) => proxyPost(request), { parse: 'none' })
 		.post('/api/dev/relay-discover', ({ request }) => relayDiscover(request), { parse: 'none' })
+		.get('/media/*', ({ params }) => mediaGet(params['*']))
 		.get('/logo/*', ({ params }) => {
 			const name = params['*']
 			if (name.includes('..')) return new Response('Not found', { status: 404 })

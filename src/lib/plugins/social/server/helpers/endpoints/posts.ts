@@ -165,8 +165,11 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		debug("followers: %o", followers);
 		debug("following: %o", following);
 
-		if (followers.length === 0 || following.length === 0) {
-			debug("User has no followers and does not follow anyone, skipping federation");
+		// "followers" reaches the servers of this user's followers; "all" also
+		// reaches the servers of the people this user follows.
+		const audience = policy === "all" ? [...followers, ...following] : followers;
+		if (audience.length === 0) {
+			debug("No one to federate to, skipping federation");
 			return context.json(
 				{ id: inserted[0].id, federationDeliveriesQueued: 0 },
 				{ status: 200 },
@@ -176,7 +179,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 		const uniqueUrls = [
 			...new Set([
 				...followers.map((f) => f.followerServerUrl).filter(Boolean),
-				...following.map((f) => f.followingServerUrl).filter(Boolean),
+				...(policy === "all" ? following.map((f) => f.followingServerUrl).filter(Boolean) : []),
 			]),
 		] as string[];
 
@@ -192,6 +195,7 @@ export const createPost = createAuthEndpoint("/social/posts", {
 					authorId: user.user.id,
 					published: published.toISOString(),
 					isPrivate,
+					authorSignature: signature,
 				},
 			});
 
@@ -232,11 +236,12 @@ export const getPost = createAuthEndpoint("/social/posts/:id", {
 	}),
 }, async (context) => { });
 
-const ALLOWED_MIME_TYPES = [
-	"image/jpeg", "image/png", "image/gif", "image/webp",
-	"video/mp4", "video/webm",
-	"audio/mpeg", "audio/ogg", "audio/wav",
-];
+/** Allowed upload types and the extension each is stored under. */
+const MIME_EXTENSIONS: Record<string, string> = {
+	"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp",
+	"video/mp4": "mp4", "video/webm": "webm",
+	"audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/wav": "wav",
+};
 
 const PRESIGN_EXPIRY_SECONDS = 5 * 60;
 
@@ -244,7 +249,7 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 	method: "POST",
 	body: z.object({
 		fileName: z.string().min(1),
-		mimeType: z.string().refine((v) => ALLOWED_MIME_TYPES.includes(v), {
+		mimeType: z.string().refine((v) => v in MIME_EXTENSIONS, {
 			message: "Unsupported file type",
 		}),
 		size: z.number().positive(),
@@ -256,8 +261,10 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 		return context.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	const { fileName, mimeType, size } = context.body;
-	const ext = fileName.split(".").pop() ?? "bin";
+	const { mimeType } = context.body;
+	// Taken from the MIME type, not the file name, so the key only ever holds
+	// characters we chose.
+	const ext = MIME_EXTENSIONS[mimeType];
 	const objectKey = `tmp/${user.user.id}/${crypto.randomUUID()}.${ext}`;
 
 	const presignedUrl = await minioClient.presignedPutObject(
@@ -266,15 +273,11 @@ export const uploadFile = createAuthEndpoint("/social/posts/files", {
 		PRESIGN_EXPIRY_SECONDS,
 	);
 
-	// Use a presigned GET URL (1-year expiry) instead of a permanent direct object URL.
-	// This avoids leaking the MinIO origin/credentials to federation peers and preserves
-	// the ability to revoke access by invalidating the key.
-	const GET_EXPIRY_SECONDS = 365 * 24 * 60 * 60; // 1 year
-	const objectUrl = await minioClient.presignedGetObject(
-		process.env.MINIO_BUCKET!,
-		objectKey,
-		GET_EXPIRY_SECONDS,
-	);
+	// A stable URL on this server. GET /media/* redirects to a short-lived
+	// presigned URL on each request, so the link never expires and the MinIO
+	// origin is only exposed for a few minutes at a time. (S3 caps presigned
+	// URLs at 7 days, so a long-lived presigned URL is not an option.)
+	const objectUrl = `${process.env.BETTER_AUTH_URL}/media/${objectKey}`;
 
 	return context.json({ presignedUrl, objectUrl, objectKey }, { status: 200 });
 });

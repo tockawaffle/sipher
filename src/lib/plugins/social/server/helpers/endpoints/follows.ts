@@ -176,7 +176,8 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				followingId: userId,
 				accepted: false,
 				createdAt: new Date(createdAt),
-				followerServerUrl: peerRegistryUrlOrNull(serverUrl),
+				// The local user follows someone on serverUrl.
+				followingServerUrl: peerRegistryUrlOrNull(serverUrl),
 				requesterSignature: signature,
 			}).returning();
 
@@ -329,7 +330,8 @@ export const followUser = createAuthEndpoint("/social/follows", {
 				followingId: following.followingId,
 				accepted,
 				createdAt: new Date(),
-				followingServerUrl: peerRegistryUrlOrNull(server.url),
+				// A user on server.url follows a local user.
+				followerServerUrl: peerRegistryUrlOrNull(server.url),
 			}).onConflictDoNothing();
 
 			return context.json({ status: "acknowledged", accepted }, { status: 200 });

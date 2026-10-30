@@ -82,7 +82,7 @@ export async function handleFollowAck(
 			and(
 				eq(follows.followerId, followData.followerId),
 				eq(follows.followingId, followData.followingId),
-				eq(follows.followerServerUrl, serverUrl),
+				eq(follows.followingServerUrl, serverUrl),
 			),
 		)
 		.limit(1);
@@ -103,7 +103,7 @@ export async function handleFollowAck(
 			and(
 				eq(follows.followerId, followData.followerId),
 				eq(follows.followingId, followData.followingId),
-				eq(follows.followerServerUrl, serverUrl),
+				eq(follows.followingServerUrl, serverUrl),
 			),
 		);
 		debug('follow %s acknowledged (rejected)', existing.id);
@@ -115,7 +115,7 @@ export async function handleFollowAck(
 			and(
 				eq(follows.followerId, followData.followerId),
 				eq(follows.followingId, followData.followingId),
-				eq(follows.followerServerUrl, serverUrl),
+				eq(follows.followingServerUrl, serverUrl),
 			),
 		);
 		debug('follow %s accepted by remote', followData.id);
@@ -128,7 +128,7 @@ export async function handleFollowAck(
 		and(
 			eq(follows.followerId, followData.followerId),
 			eq(follows.followingId, followData.followingId),
-			eq(follows.followerServerUrl, serverUrl),
+			eq(follows.followingServerUrl, serverUrl),
 		),
 	);
 }
