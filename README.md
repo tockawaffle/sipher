@@ -232,7 +232,14 @@ bun run db:migrate
 
 Run `bun run db:push` after pulling schema changes. The federation code relies on two unique indexes, `posts_federation_origin_uidx` (one copy of each remote post) and `remoteIdentityKeys_origin_uidx` (one pinned key per remote author), and on the `remote_identity_keys` table.
 
-> ⚠️ `remoteIdentityKeys_origin_uidx` is declared in the oven plugin schema, so `bun run db:generate` keeps it. Better Auth only allows unique indexes on required fields, so `posts_federation_origin_uidx` and the two `serverRegistry` key indexes are written by hand in `src/lib/db/schema/index.ts` (marked "Hand-written"). `bun run db:generate` rewrites that file; re-add them before pushing.
+> ⚠️ `remoteIdentityKeys_origin_uidx` is declared in the oven plugin schema, so the generator keeps it. Better Auth only allows unique indexes on required fields, so `posts_federation_origin_uidx` and the two `serverRegistry` key indexes are written by hand in `src/lib/db/schema/index.ts`. `bun run db:generate` rewrites that file and then runs `src/lib/db/restore-indexes.ts`, which puts them back (and fails if it cannot), so `bun run db:update` is safe. If you run `auth generate` by hand, run that script before pushing.
+
+**Upgrading from a pre-#8 deployment:** the direct follow path used to store the remote server in the wrong column (`followerServerUrl` and `followingServerUrl` were swapped), which breaks post delivery to existing remote followers. After `bun run db:push`, run once:
+
+```sh
+bun run db:backfill-follows -- --dry-run   # count affected rows
+bun run db:backfill-follows                # swap them (idempotent)
+```
 
 ### Federation Keys
 
@@ -258,6 +265,7 @@ This runs `src/lib/federation/keygen.ts`, which generates both Ed25519 (signing)
 | `bun run db:migrate`                | Push + migrate (two-step)                                     |
 | `bun run db:generate`               | Regenerate Better Auth schema + Drizzle files                 |
 | `bun run db:update`                 | Generate + push                                               |
+| `bun run db:backfill-follows`       | One-off fix for follows stored before #8 (see Database)       |
 | `bun run test`                      | Run Playwright e2e tests (`**/*.e2e.ts`)                      |
 | `bun run test:federation`           | Key rotation e2e tests                                        |
 | `bun run test:key`                  | Key rotation e2e tests only                                   |
@@ -430,7 +438,7 @@ SiPher implements custom federation and cryptographic protocols. I am not a prof
 - **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and a post delivered twice inside that window is stored once. A repeated follow from the same server is acknowledged without a second row (direct path) or refused with `409 FOLLOW_ALREADY_EXISTS` (proxy path). User ids are only unique per server, so the same ids from another server are a different follow.
 - **Federation encryption**: Posts, follows and proxy envelopes are encrypted with X25519 + AES-256-GCM (hybrid ECIES), with ephemeral keys per message. Discovery (`GET /discover`, `REGISTER`) is plain JSON, since it only carries public keys.
 - **Canonical signatures**: Posts and follows are signed with a versioned byte format (`v: 2`) that includes the federation URL to prevent cross-server replay attacks.
-- **Author key pinning**: Receivers verify each federated post's author signature and pin the author's identity key on first sight (see [Client-side signing](#client-side-signing)), so a server cannot forge posts for its users by swapping keys. A post must come from the server named in its `federationUrl`.
+- **Author key pinning**: Receivers verify each federated post's author signature and pin the author's identity key on first sight (see [Client-side signing](#client-side-signing)), so once a key is pinned a server cannot forge posts for its users by swapping keys. A post must come from the server named in its `federationUrl`. This is trust on first use: the key comes from the sending server, so a server that is malicious from the start can forge an author's posts on any receiver that has not pinned that author yet, and the forged key then sticks. Pins only defend against a server that turns malicious later; verifying keys out of band is on the roadmap with user key rotation.
 - **Key rotation requires 4 proofs**: Possession of both old and new keypairs must be proven before keys are updated. Failed confirmations don't auto-blacklist (prevents griefing).
 - **No secret key on server**: User Ed25519 secret keys never leave the browser. The server only stores public keys and OLM device key bundles.
 - **Session-scoped key caching**: The signing key lives in module memory + sessionStorage (not localStorage). It is zeroed on logout and cleared when the tab closes.

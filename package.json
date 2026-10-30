@@ -35,8 +35,9 @@
 		"start": "NODE_ENV=production bun src/server.ts",
 		"db:push": "drizzle-kit push",
 		"db:migrate": "bun run db:push && bun run drizzle-kit migrate",
-		"db:generate": "auth generate --output src/lib/db/schema/index.ts --yes",
+		"db:generate": "auth generate --output src/lib/db/schema/index.ts --yes && bun src/lib/db/restore-indexes.ts",
 		"db:update": "bun run db:generate && bun run db:push",
+		"db:backfill-follows": "bun src/lib/db/backfill-follow-server-urls.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
