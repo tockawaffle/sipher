@@ -452,7 +452,8 @@ test("rate limits proxy requests per X-Federation-Origin (429)", async ({ reques
 });
 
 test("request larger than PROXY_MAX_BODY_BYTES returns 413", async ({ request }) => {
-	const huge = "x".repeat(260_000);
+	// PROXY_MAX_BODY_BYTES is 256 KiB (262 144 bytes), so go one byte over it.
+	const huge = "x".repeat(256 * 1024 + 1);
 	const res = await request.post("/proxy", {
 		headers: {
 			"Content-Type": "application/json",
