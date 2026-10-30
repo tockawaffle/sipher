@@ -10,10 +10,9 @@ import EmailService from "./mail";
 import minioClient from "./plugins/storage/server/minio.client";
 import getRedisClient from "./redis";
 
-// `process.env.NODE_ENV` is statically replaced by Next.js at compile time, so
-// it cannot be used to detect the federation test cluster (which is built in
-// dev mode but should behave like a test environment). `SIPHER_TEST_MODE` is a
-// project-owned escape hatch the docker compose env files set explicitly.
+// The federation test cluster runs in dev mode but should behave like a test
+// environment, so `SIPHER_TEST_MODE` lets the docker compose env files opt in
+// explicitly.
 const isTest =
 	process.env.SIPHER_TEST_MODE === "true" || process.env.NODE_ENV === "test";
 const emailService: EmailService | undefined = isTest ? undefined : new EmailService();
@@ -31,9 +30,17 @@ if (!federationKeysExist) {
 	);
 }
 
+// Browser clients on these origins may call auth routes with cookies. Same
+// list as the CORS allowlist in `app.ts`.
+const trustedOrigins = process.env.CORS_ORIGINS
+	?.split(",")
+	.map((origin) => origin.trim())
+	.filter(Boolean);
+
 const bAuth = betterAuth({
 	secret: process.env.BETTER_AUTH_SECRET!,
 	baseURL: process.env.BETTER_AUTH_URL ?? (isTest ? "http://localhost:3000" : undefined),
+	trustedOrigins,
 	experimental: {
 		joins: true
 	},
@@ -78,9 +85,9 @@ const bAuth = betterAuth({
 		sipherSocial(),
 		federation(),
 		openAPI(),
-		testUtils(), // TODO: Add a conditional plugin for test utils in development
+		// Test helpers on `ctx.test` can create sessions; keep them out of production.
+		...(isTest ? [testUtils()] : []),
 		sipherOven(),
-		bearer()
 	],
 	// This is disabled by default, but I'll keep this here for ease of mind.
 	// You never know when companies will change their minds and decide to start tracking you.
