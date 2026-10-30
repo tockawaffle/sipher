@@ -506,6 +506,7 @@ console.log("\n── Test: real failover (A → C direct FAILS → A → B → 
 			},
 			federationUrl: ORIGIN,
 			method: "FEDERATE" as const,
+			sentAt: new Date().toISOString(),
 		};
 		const innerRaw = JSON.stringify(innerFollow);
 		const aSigningSecret = new Uint8Array(

@@ -1,6 +1,7 @@
 import { postContentSchema } from "@/lib/plugins/social/server/helpers/social";
 import { z } from "zod";
 import { createEncryptedEnvelopeSchema } from "../EncryptedEnvelope";
+import { sentAtSchema } from "../freshness";
 
 const PostInnerPayloadSchema = z.object({
 	post: z.object({
@@ -10,9 +11,12 @@ const PostInnerPayloadSchema = z.object({
 		authorId: z.string(),
 		published: z.string(),
 		isPrivate: z.boolean(),
+		/** The author's own Ed25519 signature over the post (see canonicalPostBytes). */
+		authorSignature: z.string().min(1),
 	}),
 	federationUrl: z.string(),
 	method: z.literal("FEDERATE_POST"),
+	sentAt: sentAtSchema,
 });
 
 export const PostEnvelopeSchema = createEncryptedEnvelopeSchema(PostInnerPayloadSchema);

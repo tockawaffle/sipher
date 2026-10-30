@@ -43,10 +43,11 @@ test.beforeEach(async () => {
 });
 
 /** Builds TARGETED outer envelope + JSON POST body for /proxy. */
-function buildFollowTargetedEnvelope(followerId: string, followingId: string, sigTamper?: string) {
+function buildFollowTargetedEnvelope(followerId: string, followingId: string, sigTamper?: string, sentAt = new Date()) {
 	const innerFollow = {
 		federationUrl: SENDER_URL,
 		method: "FEDERATE" as const,
+		sentAt: sentAt.toISOString(),
 		following: {
 			id: crypto.randomUUID(),
 			createdAt: new Date().toISOString(),
@@ -202,6 +203,7 @@ test("TARGETED rejects X-Federation-Target origin mismatch", async ({ request })
 	const innerFollow = {
 		federationUrl: SENDER_URL,
 		method: "FEDERATE" as const,
+		sentAt: new Date().toISOString(),
 		following: {
 			id: crypto.randomUUID(),
 			createdAt: new Date().toISOString(),
@@ -248,6 +250,7 @@ test("TARGETED rejects unknown federation sender in decrypted headers", async ({
 	const innerFollow = {
 		federationUrl: "https://no-registry-entry.example",
 		method: "FEDERATE" as const,
+		sentAt: new Date().toISOString(),
 		following: {
 			id: crypto.randomUUID(),
 			createdAt: new Date().toISOString(),
@@ -336,6 +339,22 @@ test("TARGETED rejects invalid follow signature", async ({ request }) => {
 	});
 	expect(res.status()).toBe(403);
 	expect(await res.json()).toMatchObject({ code: "INVALID_SIGNATURE" });
+});
+
+test("TARGETED FEDERATE_FOLLOW rejects a replay older than the freshness window", async ({ request }) => {
+	const followerId = crypto.randomUUID();
+	const followingId = crypto.randomUUID();
+	await seedMinimalUser({ id: followerId, email: `${followerId}@proxy-test.invalid` });
+	await seedMinimalUser({ id: followingId, email: `${followingId}@proxy-test.invalid`, isPrivate: false });
+
+	// Correctly signed and encrypted, but captured an hour ago.
+	const stale = new Date(Date.now() - 60 * 60 * 1000);
+	const res = await request.post("/proxy", {
+		headers: { "X-Federation-Origin": SENDER_URL },
+		data: { method: "TARGETED", payload: buildFollowTargetedEnvelope(followerId, followingId, undefined, stale) },
+	});
+	expect(res.status()).toBe(400);
+	expect(await res.json()).toMatchObject({ code: "INVALID_FOLLOW_PAYLOAD" });
 });
 
 test("TARGETED FEDERATE_FOLLOW inserts follow and returns PROXY_RESPONSE", async ({ request }) => {

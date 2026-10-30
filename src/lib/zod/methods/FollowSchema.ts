@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createEncryptedEnvelopeSchema } from "../EncryptedEnvelope";
+import { sentAtSchema } from "../freshness";
 
 const FollowInnerPayloadSchema = z.object({
 	following: z.object({
@@ -12,6 +13,7 @@ const FollowInnerPayloadSchema = z.object({
 	}),
 	federationUrl: z.string(),
 	method: z.literal("FEDERATE"),
+	sentAt: sentAtSchema,
 });
 
 export const FollowEnvelopeSchema = createEncryptedEnvelopeSchema(FollowInnerPayloadSchema);

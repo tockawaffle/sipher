@@ -44,13 +44,13 @@ function getFederationOrigin(): string {
 // ---------------------------------------------------------------------------
 
 export async function processFederationDelivery(job: Job<FederationDeliveryJob>): Promise<void> {
-	const { deliveryJobId, targetUrl, serverUrl, payload } = job.data;
+	const { deliveryJobId, targetUrl, serverUrl, payload: storedPayload } = job.data;
 	debug('processing job %s (%s) → %s (attempt %d)', job.id, job.name, targetUrl, job.attemptsMade + 1);
 
 	// 1. Validate method early — before any I/O.
 	let parsedPayload: Record<string, unknown>;
 	try {
-		parsedPayload = JSON.parse(payload);
+		parsedPayload = JSON.parse(storedPayload);
 	} catch {
 		await db.delete(deliveryJobs).where(eq(deliveryJobs.id, deliveryJobId));
 		throw new UnrecoverableError(`Malformed payload JSON, dropping job ${job.id}`);
@@ -115,6 +115,8 @@ export async function processFederationDelivery(job: Job<FederationDeliveryJob>)
 	// 4. Encrypt payload and record the attempt.
 	debug('encrypting payload for %s (key: %s…)', serverUrl, encryptionPublicKey.slice(0, 8));
 	const recipientKey = new Uint8Array(Buffer.from(encryptionPublicKey, 'base64'));
+	// Stamped on every attempt so the receiver can refuse replays of old messages.
+	const payload = JSON.stringify({ ...parsedPayload, sentAt: new Date().toISOString() });
 	const encrypted = encryptPayload(payload, recipientKey);
 
 	await db.update(deliveryJobs).set({

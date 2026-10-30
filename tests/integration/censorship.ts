@@ -122,13 +122,14 @@ async function stopNode(id: NodeId) {
 	delete procs[id];
 }
 
-function setRules(id: NodeId, rules: { dns?: NodeId[]; refuse?: NodeId[]; timeout?: NodeId[] }) {
+function setRules(id: NodeId, rules: { dns?: NodeId[]; refuse?: NodeId[]; timeout?: NodeId[]; slow?: NodeId[] }) {
 	writeFileSync(
 		`${NETSIM_DIR}/${id}.json`,
 		JSON.stringify({
 			dns: (rules.dns ?? []).map(host),
 			refuse: (rules.refuse ?? []).map(host),
 			timeout: (rules.timeout ?? []).map(host),
+			slow: (rules.slow ?? []).map(host),
 		}),
 	);
 }
@@ -402,6 +403,23 @@ scenario("S9", "Connection-reset censorship (RST injection to C)", async () => {
 	if (r.delivered) record("S9", "refused/reset-style censorship", "PASS", `delivered in ${r.afterMs}ms via ${r.proxies.at(-1) ?? "direct"}`);
 	else record("S9", "refused/reset-style censorship", "FAIL",
 		`not delivered in 60s; proxies tried: ${r.proxies.length}. CONN_REFUSED/CONN_RESET are treated as "server down", so a censor that resets connections blocks delivery`);
+});
+
+scenario("S10", "C stores the post but its answer is lost: A retries through a proxy", async () => {
+	// A times out after C already stored the post, then sends the same post via a proxy.
+	setRules("a", { slow: ["c"] });
+	const r = await postAndWait("S10", { waitMs: 60_000 });
+	// Give A time to receive the proxied ack and finish the job.
+	let copies = 0;
+	let pendingJobs = -1;
+	for (let i = 0; i < 80; i++) {
+		await Bun.sleep(500);
+		copies = (await q("c", "select id from posts where federation_post_id = $1 and federation_url = $2", [r.postId, url("a")])).length;
+		pendingJobs = (await q("a", "select id from delivery_jobs where payload like $1", [`%${r.postId}%`])).length;
+		if (pendingJobs === 0) break;
+	}
+	if (r.delivered && copies === 1 && pendingJobs === 0) record("S10", "duplicate delivery is stored once and acknowledged", "PASS", `1 copy on C, delivery job finished`);
+	else record("S10", "duplicate delivery is stored once and acknowledged", "FAIL", `delivered=${r.delivered}, copies on C=${copies}, A jobs still pending=${pendingJobs}`);
 });
 
 // ---------------------------------------------------------------------------

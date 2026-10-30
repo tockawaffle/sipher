@@ -192,6 +192,7 @@ MINIO_PORT=443
 MINIO_USE_SSL=true
 MINIO_ACCESS_KEY=<access-key>
 MINIO_SECRET_KEY=<secret-key>
+# MINIO_REGION=us-east-1
 
 # SMTP email (optional, used for verification emails)
 EMAIL_HOST=smtp.your-server.com
@@ -203,8 +204,13 @@ EMAIL_PASSWORD=<password>
 # Comma-separated list of allowed CORS origins for front-ends (default: any origin)
 # CORS_ORIGINS=https://app.your-server.com
 
-# Development only: override SSRF guard to allow private IPs
+# Override the SSRF guard for these hosts. localhost and 127.0.0.1 are
+# allowed by default only when NODE_ENV is not production.
 # DEV_ALLOWED_HOSTNAMES=localhost,127.0.0.1,::1
+
+# Reverse proxies in front of the server that append to X-Forwarded-For.
+# 0 (default) ignores the header, so clients cannot spoof their IP.
+# TRUSTED_PROXY_HOPS=1
 
 # Debug logging namespaces
 DEBUG=app:*,test:*
@@ -404,13 +410,14 @@ SiPher implements custom federation and cryptographic protocols. I am not a prof
 
 ### What SiPher does for safety
 
-- **SSRF protection**: A URL guard (`url-guard.ts`) blocks requests to private/internal IPv4 ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, link-local), IPv6 ULA and link-local addresses, blocked hostnames (localhost, metadata endpoints), and non-HTTP(S) protocols. Only overridable via `DEV_ALLOWED_HOSTNAMES` env var.
+- **SSRF protection**: A URL guard (`url-guard.ts`) blocks private, loopback, link-local, CGNAT, multicast and reserved IPv4 ranges, IPv6 ULA, link-local and NAT64 addresses, IPv4-mapped IPv6 forms of all of these, blocked hostnames (localhost, metadata endpoints), and non-HTTP(S) protocols. Before each federation request the hostname is resolved and refused if any address is internal, and redirects are not followed. Only overridable via `DEV_ALLOWED_HOSTNAMES`. The DNS check and the request resolve separately, so DNS rebinding is not fully covered.
+- **Replay window**: Every federated follow and post carries a signed `sentAt`. Receivers refuse messages older than 15 minutes (or more than 5 minutes in the future), and repeated deliveries inside that window are idempotent.
 - **Federation encryption**: All cross-server payloads are encrypted with X25519 + AES-256-GCM (hybrid ECIES). Ephemeral keys per message.
 - **Canonical signatures**: Posts and follows are signed with a versioned byte format (`v: 2`) that includes the federation URL to prevent cross-server replay attacks.
 - **Key rotation requires 4 proofs**: Possession of both old and new keypairs must be proven before keys are updated. Failed confirmations don't auto-blacklist (prevents griefing).
 - **No secret key on server**: User Ed25519 secret keys never leave the browser. The server only stores public keys and OLM device key bundles.
 - **Session-scoped key caching**: The signing key lives in module memory + sessionStorage (not localStorage). It is zeroed on logout and cleared when the tab closes.
-- **Rate limiting**: Per-route sliding-window limits prevent abuse of registration, key rotation, and proxy endpoints.
+- **Rate limiting**: Per-route sliding-window limits prevent abuse of registration, key rotation, and proxy endpoints. `X-Forwarded-For` is only trusted for `TRUSTED_PROXY_HOPS` hops.
 
 If you find a vulnerability, please open an issue or contact me directly at [tocka@tockanest.com](mailto:tocka@tockanest.com). Responsible disclosure is appreciated.
 

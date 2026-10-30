@@ -49,30 +49,41 @@ export async function applyFederatedPostInTransaction(
 		)
 		.limit(1);
 
-	if (existing) {
-		return {
-			ok: false,
-			error: "This post has already been federated to this server.",
-			code: "FEDERATED_POST_ALREADY_EXISTS",
-			status: 409,
-		};
+	// A post can arrive twice: a direct attempt that timed out after we stored
+	// it, then the same post through a proxy, or a replay. Acknowledge it again
+	// with the id we already gave it, so the sender stops retrying.
+	let localId = existing?.id;
+
+	if (!localId) {
+		localId = crypto.randomUUID();
+		const inserted = await tx.insert(posts).values({
+			id: localId,
+			content: envelope.post.content,
+			authorId: null,
+			federatedAuthorId: envelope.post.authorId,
+			published: new Date(envelope.post.published),
+			isLocal: false,
+			isPrivate: envelope.post.isPrivate,
+			federationUrl: envelope.federationUrl,
+			federationPostId: envelope.post.id,
+			createdAt: new Date(),
+			authorSignature: envelope.post.authorSignature,
+		}).onConflictDoNothing({ target: [posts.federationUrl, posts.federationPostId] })
+			.returning({ id: posts.id });
+
+		if (inserted.length === 0) {
+			// Lost a race with a concurrent copy of the same post.
+			const [winner] = await tx
+				.select({ id: posts.id })
+				.from(posts)
+				.where(and(
+					eq(posts.federationUrl, envelope.federationUrl),
+					eq(posts.federationPostId, envelope.post.id),
+				))
+				.limit(1);
+			localId = winner!.id;
+		}
 	}
-
-	const localId = crypto.randomUUID();
-	const published = new Date(envelope.post.published);
-
-	await tx.insert(posts).values({
-		id: localId,
-		content: envelope.post.content,
-		authorId: null,
-		federatedAuthorId: envelope.post.authorId,
-		published,
-		isLocal: false,
-		isPrivate: envelope.post.isPrivate,
-		federationUrl: envelope.federationUrl,
-		federationPostId: envelope.post.id,
-		createdAt: new Date(),
-	});
 
 	const innerPayload = JSON.stringify({
 		post: {

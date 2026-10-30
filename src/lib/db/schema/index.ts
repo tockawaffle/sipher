@@ -89,6 +89,8 @@ export const posts = pgTable(
   (table) => [
     index("posts_federationUrl_idx").on(table.federationUrl),
     index("posts_federationPostId_idx").on(table.federationPostId),
+    // One copy of each remote post, even when it arrives twice at once.
+    uniqueIndex("posts_federation_origin_uidx").on(table.federationUrl, table.federationPostId),
   ],
 );
 
