@@ -7,6 +7,7 @@ import { canonicalPostBytes } from "@/lib/identity/postSignature";
 import minioClient from "@/lib/plugins/storage/server/minio.client";
 import { EncryptedEnvelopeBaseSchema } from "@/lib/zod/EncryptedEnvelope";
 import { PostEnvelopeSchema } from "@/lib/zod/methods/PostFederationSchema";
+import { jsonRequestBody } from "@/lib/zod/openapi";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq } from "drizzle-orm";
@@ -34,6 +35,34 @@ const createPostBodySchema = z.union([federatedPostRequestSchema, userPostReques
 export const createPost = createAuthEndpoint("/social/posts", {
 	method: "POST",
 	body: createPostBodySchema,
+	metadata: {
+		openapi: {
+			description:
+				"Create a post signed with the author's identity key, or (with method FEDERATE_POST) receive a post from a peer server.",
+			requestBody: jsonRequestBody(createPostBodySchema),
+			responses: {
+				"200": {
+					description:
+						"A user post returns { id, federationDeliveriesQueued }. A federated post returns a PROXY_RESPONSE ack: { method, status, data, signature }.",
+					content: {
+						"application/json": {
+							schema: {
+								type: "object",
+								properties: {
+									id: { type: "string", description: "User post: the new post's id" },
+									federationDeliveriesQueued: { type: "number", description: "User post: peer servers queued" },
+									method: { type: "string", enum: ["PROXY_RESPONSE"], description: "Federated post ack" },
+									status: { type: "string", enum: ["acknowledged"], description: "Federated post ack" },
+									data: { type: "object", description: "Federated post ack: encrypted envelope" },
+									signature: { type: "string", description: "Federated post ack: server signature" },
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	},
 }, async (context) => {
 	const body = context.body;
 

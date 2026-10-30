@@ -6,6 +6,7 @@ import { peerRegistryUrlOrNull } from "@/lib/federation/peer-registry-url";
 import { discoverAndRegister, DiscoveryError } from "@/lib/federation/registry";
 import { canonicalFollowRequestBytes, canonicalFollowResponseBytes } from "@/lib/identity/followSignature";
 import { FollowEnvelopeSchema } from "@/lib/zod/methods/FollowSchema";
+import { jsonRequestBody } from "@/lib/zod/openapi";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import createDebug from "debug";
 import { and, eq, isNull } from "drizzle-orm";
@@ -46,6 +47,19 @@ const followSchema = z.discriminatedUnion(
 export const followUser = createAuthEndpoint("/social/follows", {
 	method: "POST",
 	body: followSchema,
+	metadata: {
+		openapi: {
+			description:
+				"Follow a user (INSERT), answer a follow request (RESPOND), or (with method FEDERATE) receive a follow from a peer server. UNFOLLOW is not implemented yet.",
+			requestBody: jsonRequestBody(followSchema),
+			responses: {
+				"200": {
+					description: "The follow was stored or acknowledged. The body depends on the method.",
+					content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
+				},
+			},
+		},
+	},
 }, async (context) => {
 
 	const { method } = context.body;
